@@ -20,5 +20,12 @@ config MACH_MESON6_REFG18_ATV106
 	default y 
 	help
           Support for Visson ATV-106 MX device
+          
+config MACH_MESON6_REFG18_ITV05
+	depends on ARCH_MESON6
+	bool "TinyHTPC ITV05 board"
+	default y 
+	help
+          Support for TinyHTPC ITV05 MX device
 
 endif # ARCH_MESON6
