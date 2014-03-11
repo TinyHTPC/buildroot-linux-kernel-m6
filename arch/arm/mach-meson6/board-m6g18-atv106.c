@@ -189,7 +189,7 @@
 #if defined(CONFIG_AM_DEINTERLACE_SD_ONLY)
 #define DI_MEM_SIZE         (SZ_1M*3)
 #else
-#define DI_MEM_SIZE         (SZ_1M*15)
+#define DI_MEM_SIZE         (SZ_1M*35)
 #endif
 #define DI_ADDR_START       U_ALIGN(CODEC_ADDR_END)
 #define DI_ADDR_END         (DI_ADDR_START+DI_MEM_SIZE-1)
@@ -605,8 +605,7 @@ static struct mtd_partition normal_partition_info[] = {
         .name = "cache",
         .offset = 640*SZ_1M+512*SZ_1M+40*SZ_1M,
         .size = 512*SZ_1M,
-    },
-#if 1    
+    },   
     {
     	  .name = "backup",
         .offset = 1152*SZ_1M+512*SZ_1M+40*SZ_1M,
@@ -616,40 +615,12 @@ static struct mtd_partition normal_partition_info[] = {
         .name = "data",
         .offset = MTDPART_OFS_APPEND,
         .size = MTDPART_SIZ_FULL,
-    },
-   
-#else    
-    {
-        .name = "userdata",
-        .offset = 1152*SZ_1M+512*SZ_1M+40*SZ_1M,
-        .size = 512*SZ_1M,
-    },
-    {
-        .name = "NFTL_Part",
-        .offset = MTDPART_OFS_APPEND,
-        .size = MTDPART_SIZ_FULL,
-    },
-#endif    
+    },  
 };
 
 
 static struct aml_nand_platform aml_nand_mid_platform[] = {
 #ifndef CONFIG_AMLOGIC_SPI_NOR
-    {
-        .name = NAND_BOOT_NAME,
-        .chip_enable_pad = AML_NAND_CE0,
-        .ready_busy_pad = AML_NAND_CE0,
-        .platform_nand_data = {
-            .chip =  {
-                .nr_chips = 1,
-                .options = (NAND_TIMING_MODE5 | NAND_ECC_BCH60_1K_MODE),
-            },
-        },
-        .T_REA = 20,
-        .T_RHOH = 15,
-    },
-#elif  defined CONFIG_SPI_NAND_COMPATIBLE || defined CONFIG_SPI_NAND_EMMC_COMPATIBLE
-
     {
         .name = NAND_BOOT_NAME,
         .chip_enable_pad = AML_NAND_CE0,
@@ -710,20 +681,12 @@ static struct mtd_partition spi_partition_info[] = {
             {
                     .name = "bootloader",
                     .offset = 0,
-#ifdef CONFIG_MESON_TRUSTZONE
-                    .size = 0x100000,
-#else
                     .size = 0x60000,
-#endif
             },
     
     {
         .name = "ubootenv",
-#ifdef CONFIG_MESON_TRUSTZONE
-        .offset = 0x100000,
-#else
         .offset = 0x80000,
-#endif
         .size = 0x8000,
     },
    
@@ -753,8 +716,8 @@ static struct platform_device amlogic_spi_nor_device = {
 };
 #endif
 
-#if defined(CONFIG_AML_EMMC_KEY) || defined(CONFIG_AML_NAND_KEY)
-static char * secure_device[3]={"nand_key","emmc_key",NULL};
+#if defined(CONFIG_AML_CARD_KEY) || defined(CONFIG_AML_NAND_KEY)
+static char * secure_device[2]={"nand_key",NULL};
 static struct platform_device aml_keys_device = {
     .name   = "aml_keys",
     .id = -1,

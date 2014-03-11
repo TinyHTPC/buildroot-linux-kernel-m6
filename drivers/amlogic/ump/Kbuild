@@ -95,3 +95,4 @@ clean-files := __mali_osk*.c
 
 obj-$(CONFIG_UMP) := ump.o
 
+

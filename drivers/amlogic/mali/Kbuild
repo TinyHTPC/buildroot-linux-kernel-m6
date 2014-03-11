@@ -303,3 +303,4 @@ VERSION_STRINGS += USING_GPU_UTILIZATION=$(CONFIG_MALI400_GPU_UTILIZATION)
 # Create file with Mali driver configuration
 $(TOP_KBUILD_SRC)$(DRIVER_DIR)/__malidrv_build_info.c:
 	@echo 'const char *__malidrv_build_info(void) { return "malidrv: $(VERSION_STRINGS)";}' > $(TOP_KBUILD_SRC)$(DRIVER_DIR)/__malidrv_build_info.c
+
