@@ -189,7 +189,7 @@
 #if defined(CONFIG_AM_DEINTERLACE_SD_ONLY)
 #define DI_MEM_SIZE         (SZ_1M*3)
 #else
-#define DI_MEM_SIZE         (SZ_1M*35)
+#define DI_MEM_SIZE         (SZ_1M*15)
 #endif
 #define DI_ADDR_START       U_ALIGN(CODEC_ADDR_END)
 #define DI_ADDR_END         (DI_ADDR_START+DI_MEM_SIZE-1)
@@ -686,7 +686,7 @@ static struct mtd_partition spi_partition_info[] = {
     
     {
         .name = "ubootenv",
-        .offset = 0x80000,
+        .offset = 0x60000,
         .size = 0x8000,
     },
    
@@ -2596,4 +2596,3 @@ MACHINE_START(MESON6_G02, "Visson ATV-106 platform")
     .init_machine   = meson_init_machine,
     .fixup          = meson_fixup,///1
 MACHINE_END
-

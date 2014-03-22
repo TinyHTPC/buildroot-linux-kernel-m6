@@ -23,6 +23,11 @@
 #include "sd_misc.h"
 #include "sd_protocol.h"
 
+#ifdef CONFIG_AML_EMMC_KEY
+#include "../emmc_key.h"
+#endif
+
+
 struct memory_card *card_find_card(struct card_host *host, u8 card_type); 
 
 void sd_insert_detector(struct memory_card *card)
@@ -52,10 +57,10 @@ void sd_open(struct memory_card *card)
 		aml_card_info->card_extern_init();
 	ret = sd_mmc_init(sd_mmc_info);
 	
-	if(ret)
+	if(ret && card->card_type == CARD_SECURE_DIGITAL)
 		ret = sd_mmc_init(sd_mmc_info);
 
-	if(ret)
+	if(ret && card->card_type == CARD_SECURE_DIGITAL)
 		ret = sd_mmc_init(sd_mmc_info);
 		
 	card->capacity = sd_mmc_info->blk_nums;
@@ -136,8 +141,6 @@ void sd_resume(struct memory_card *card)
 {
 	printk("***Entered %s:%s\n", __FILE__,__func__);
 }
-
-
 static int sd_request(struct memory_card *card, struct card_blk_request *brq)
 {
 	SD_MMC_Card_Info_t *sd_mmc_info = (SD_MMC_Card_Info_t *)card->card_info;
@@ -150,6 +153,19 @@ static int sd_request(struct memory_card *card, struct card_blk_request *brq)
 	lba = brq->card_data.lba;
 	byte_cnt = brq->card_data.blk_size * brq->card_data.blk_nums;
 	data_buf = brq->crq.buf;
+	//printk("%s:%d,write:%s   data_buf:0x%x,brq->crq.buf:0x%x\n",__func__,__LINE__,data_buf,(unsigned int)data_buf,(unsigned int)brq->crq.buf);
+
+#ifdef CONFIG_AML_EMMC_KEY
+	if(card->key_protect){
+		if(card->aml_emmckey_info){
+			if((lba >= card->aml_emmckey_info->lba_start ) &&( lba < card->aml_emmckey_info->lba_end)){
+				//printk("%s:%d,area read/write protect\n",__func__,__LINE__);
+				return 0;
+			}
+		}
+	}
+#endif
+	//printk("%s:%d,lba:0x%x \n",__func__,__LINE__,lba);
 
 	if(sd_mmc_info == NULL){
 		brq->card_data.error = SD_MMC_ERROR_NO_CARD_INS;
@@ -239,7 +255,9 @@ static int sd_request(struct memory_card *card, struct card_blk_request *brq)
 	    		WRITE_CBUS_REG(SDIO_CONFIG, sdio_info->sd_save_hw_io_config);
 	      		WRITE_CBUS_REG(SDIO_MULT_CONFIG, sdio_info->sd_save_hw_io_mult_config);
     	}
+#ifdef CONFIG_SDIO_HARD_IRQ
 		sdio_open_host_interrupt(SDIO_IF_INT);
+#endif
 	}
 	
 #if MESON_CPU_TYPE >= MESON_CPU_TYPE_MESON6	
@@ -467,13 +485,6 @@ int inand_probe(struct memory_card *card)
         sdio_info->sd_mmc_power_delay = 0;
 #endif
 
-
-#ifdef CONFIG_AML_CARD_KEY
-	{
-		int card_key_init(struct memory_card *card);
-		card_key_init(card);
-	}
-#endif
 	return 0;
 }
 

@@ -18,6 +18,7 @@
 #include <linux/err.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
+#include <mtd/mtd-abi.h>
 #include <linux/proc_fs.h>
 #include <linux/genhd.h>
 #include <linux/kthread.h>
@@ -26,6 +27,11 @@
 #include <asm/system.h>
 #include <asm/uaccess.h>
 
+#include "card_data.h"
+
+#ifdef CONFIG_AML_EMMC_KEY
+#include "emmc_key.h"
+#endif
 
 static int major;
 #define CARD_SHIFT	4
@@ -44,6 +50,7 @@ static int card_blk_issue_rq(struct card_queue *cq, struct request *req);
 static int card_blk_probe(struct memory_card *card);
 static int card_blk_prep_rq(struct card_queue *cq, struct request *req);
 void card_queue_resume(struct card_queue *cq);
+#if 0
 struct card_blk_data {
 	spinlock_t lock;
 	struct gendisk *disk;
@@ -53,6 +60,8 @@ struct card_blk_data {
 	unsigned int block_bits;
 	unsigned int read_only;
 };
+#endif
+
 
 static DEFINE_MUTEX(open_lock);
 
@@ -174,10 +183,51 @@ static int card_blk_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return 0;
 }
 
+static int card_blk_ioctl(struct block_device *bdev, fmode_t mode,
+		    unsigned int cmd, unsigned long arg)
+{
+	void __user *argp = (void __user *)arg;
+	int ret = 0;
+	u_long size;
+	struct mtd_info_user info;
+	struct gendisk *disk = bdev->bd_disk;
+	int part_num;
+
+	switch (cmd) {
+	case MEMGETINFO:
+		part_num = MINOR(bdev->bd_dev)-disk->first_minor;
+		BUG_ON(part_num < 0);
+		memset(&info, 0, sizeof(info));
+		info.type	= MTD_NORFLASH;
+		info.flags	= MTD_CAP_NORFLASH;
+		info.size	= (disk->part_tbl->part[part_num]->nr_sects<<9);
+		info.erasesize	= CARD_QUEUE_BOUNCESZ;
+		info.writesize	= CARD_QUEUE_BOUNCESZ;
+		info.oobsize	= 4096;
+		/* The below fields are obsolete */
+		info.ecctype	= -1;
+		printk(KERN_DEBUG "[card_blk_ioctl]cmd %x MEMGETINFO, part_num %d,"
+			"erasesize 0x%x, partition size 0x%x\n", cmd,
+			part_num, info.erasesize, info.size);
+		if (copy_to_user(argp, &info, sizeof(struct mtd_info_user)))
+			return -EFAULT;
+		break;
+	case MEMERASE:
+	case MEMLOCK:
+	case MEMUNLOCK:
+	case MEMGETBADBLOCK:
+		return 0;
+	default:
+		ret = -ENOTTY;
+	}
+	return ret;
+}
+
 static struct block_device_operations card_ops = {
 	.open = card_blk_open,
 	.release = card_blk_release,
 	.getgeo = card_blk_getgeo,
+	.ioctl = card_blk_ioctl,
 	.owner = THIS_MODULE,
 };
 
@@ -613,7 +663,10 @@ static struct card_blk_data *card_blk_alloc(struct memory_card *card)
 	card_data->disk->queue = card_data->queue.queue;
 	card_data->disk->driverfs_dev = &card->dev;
 
+	//printk("%s:%d  444444444444444444,card->name:%s\n",__func__,__LINE__,card->name);
 	sprintf(card_data->disk->disk_name, "cardblk%s", card->name);
+	
+	//printk("%s:%d,major:%d,minors:%d,first_minor:%d,name:%s,\n",__func__,__LINE__,card_data->disk->major,card_data->disk->minors,card_data->disk->first_minor,card_data->disk->disk_name);
 
 	blk_queue_logical_block_size(card_data->queue.queue, 1 << card_data->block_bits);
 
@@ -673,6 +726,7 @@ static int card_blk_issue_rq(struct card_queue *cq, struct request *req)
 
 		card->host->card_type = card->card_type;
 		
+		//printk("%s:%d  444444444444444444\n",__func__,__LINE__);
 		card_queue_bounce_pre(cq);
 
 		card_wait_for_req(card->host, &brq);
@@ -868,7 +922,8 @@ done:
  * @card: inand_card_lp
  * @size: set last partition capacity
  */
-int add_last_partition(struct memory_card* card, uint64_t offset ,uint64_t size)
+int add_last_partition(struct memory_card* card, char* name, uint64_t offset,
+		uint64_t size)
 {
       struct card_blk_data *card_data;
       int ret;
@@ -915,7 +970,7 @@ int add_last_partition(struct memory_card* card, uint64_t offset ,uint64_t size)
       card_data->disk->queue = card_data->queue.queue;
       card_data->disk->driverfs_dev = &card->dev;
 
-      sprintf(card_data->disk->disk_name, "cardblk%s", card->name);
+      sprintf(card_data->disk->disk_name, "%s", name);
 
       blk_queue_logical_block_size(card_data->queue.queue, 1 << card_data->block_bits);
 
@@ -931,6 +986,9 @@ int card_init_inand_lp(struct memory_card* card)
       struct mtd_partition * part = pinfo->partitions;
       int i, err=0, nr_part = pinfo->nr_partitions;
       uint64_t offset=0, size, cur_offset=0;
+#ifdef CONFIG_AML_EMMC_KEY
+      uint64_t key_size;
+#endif
 
       for(i=0; i<nr_part; i++)
       {
@@ -944,9 +1002,14 @@ int card_init_inand_lp(struct memory_card* card)
                         size = card->capacity- cur_offset;
                   else
                         size = card->capacity - part[i].offset;
+#ifdef CONFIG_AML_EMMC_KEY
+                  key_size = EMMCKEY_AREA_PHY_SIZE;
+                  size -= (key_size>>9);
+#endif
                   printk("[%s] (sectors) capacity %d, offset %lld, size%lld\n",
                                     card->name, card->capacity, offset, size);
-                  err = add_last_partition(card, cur_offset, size);
+
+                  err = add_last_partition(card, part[i].name, cur_offset, size);
             }
             else{
                   offset = part[i].offset>>9;
@@ -977,6 +1040,118 @@ void card_remove_inand_lp(struct card_host* host)
 }
 #endif
 
+static ssize_t whole_disk_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	return 0;
+}
+static DEVICE_ATTR(whole_disk, S_IRUSR | S_IRGRP | S_IROTH,
+		   whole_disk_show, NULL);
+
+struct hd_struct *add_inand_partition(struct gendisk *disk, int partno,
+				sector_t start, sector_t len, int flags,
+				struct partition_meta_info *info, char * pname)
+{
+	struct hd_struct *p;
+	dev_t devt = MKDEV(0, 0);
+	struct device *ddev = disk_to_dev(disk);
+	struct device *pdev;
+	struct disk_part_tbl *ptbl;
+	const char *dname;
+	int err;
+
+    
+	err = disk_expand_part_tbl(disk, partno);
+	if (err)
+		return ERR_PTR(err);
+	ptbl = disk->part_tbl;
+
+	if (ptbl->part[partno])
+		return ERR_PTR(-EBUSY);
+
+	p = kzalloc(sizeof(*p), GFP_KERNEL);
+	if (!p)
+		return ERR_PTR(-EBUSY);
+
+	if (!init_part_stats(p)) {
+		err = -ENOMEM;
+		goto out_free;
+	}
+	pdev = part_to_dev(p);
+
+	p->start_sect = start;
+	p->alignment_offset =
+		queue_limit_alignment_offset(&disk->queue->limits, start);
+	p->discard_alignment =
+		queue_limit_discard_alignment(&disk->queue->limits, start);
+	p->nr_sects = len;
+	p->partno = partno;
+	p->policy = get_disk_ro(disk);
+
+	if (info) {
+		struct partition_meta_info *pinfo = alloc_part_info(disk);
+		if (!pinfo)
+			goto out_free_stats;
+		memcpy(pinfo, info, sizeof(*info));
+		p->info = pinfo;
+	}
+
+    dname = dev_name(ddev);
+	dev_set_name(pdev, "%s", pname);
+
+	device_initialize(pdev);
+	pdev->class = &block_class;
+	pdev->type = &part_type;
+	pdev->parent = ddev;
+
+	err = blk_alloc_devt(p, &devt);
+	if (err)
+		goto out_free_info;
+	pdev->devt = devt;
+
+	/* delay uevent until 'holders' subdir is created */
+	dev_set_uevent_suppress(pdev, 1);
+	err = device_add(pdev);
+	if (err)
+		goto out_put;
+
+	err = -ENOMEM;
+	p->holder_dir = kobject_create_and_add("holders", &pdev->kobj);
+	if (!p->holder_dir)
+		goto out_del;
+
+	dev_set_uevent_suppress(pdev, 0);
+	if (flags & ADDPART_FLAG_WHOLEDISK) {
+		err = device_create_file(pdev, &dev_attr_whole_disk);
+		if (err)
+			goto out_del;
+	}
+
+	/* everything is up and running, commence */
+	rcu_assign_pointer(ptbl->part[partno], p);
+
+	/* suppress uevent if the disk suppresses it */
+	if (!dev_get_uevent_suppress(ddev))
+		kobject_uevent(&pdev->kobj, KOBJ_ADD);
+
+	hd_ref_init(p);
+	return p;
+
+out_free_info:
+	free_part_info(p);
+out_free_stats:
+	free_part_stats(p);
+out_free:
+	kfree(p);
+	return ERR_PTR(err);
+out_del:
+	kobject_put(p->holder_dir);
+	device_del(pdev);
+out_put:
+	put_device(pdev);
+	blk_free_devt(devt);
+	return ERR_PTR(err);
+}
 
 /**
  * add_card_partition : add card partition , refer to 
@@ -993,6 +1168,9 @@ int add_card_partition(struct memory_card* card, struct gendisk * disk,
 	uint64_t cur_offset=0;
 	uint64_t offset, size;
 	
+#ifdef CONFIG_AML_EMMC_KEY
+	uint64_t key_size;
+#endif
 	if(!part)
 		return 0;
 
@@ -1004,6 +1182,11 @@ int add_card_partition(struct memory_card* card, struct gendisk * disk,
 		if (part[i].size == MTDPART_SIZ_FULL)
 		{
 			size = disk->part0.nr_sects - offset;
+#ifdef CONFIG_AML_EMMC_KEY
+			key_size = EMMCKEY_AREA_PHY_SIZE;
+			size -= (key_size>>9);
+#endif
+
 #ifdef CONFIG_INAND_LP
 			printk("[%s%d] %20s  offset 0x%012llx, len 0x%012llx %s\n",
 					disk->disk_name, 1+i, part[i].name, offset<<9, size<<9,
@@ -1011,7 +1194,7 @@ int add_card_partition(struct memory_card* card, struct gendisk * disk,
 			break;
 #endif
 		}
-		ret = add_partition(disk, 1+i, offset, size, 0,NULL);//change by leo
+           ret =add_inand_partition( disk,1+i,offset,size,0,NULL,part[i].name);
 		printk("[%s%d] %20s  offset 0x%012llx, len 0x%012llx %s\n",
 				disk->disk_name, 1+i, part[i].name, offset<<9, size<<9,
 				IS_ERR(ret) ? "add fail":"");
@@ -1047,10 +1230,30 @@ static int card_blk_probe(struct memory_card *card)
 
 	card_set_drvdata(card, card_data);
 
+#ifdef CONFIG_AML_EMMC_KEY
+	if(card->card_type == CARD_INAND)
+	{
+		int emmc_key_init( void *keypara);
+		emmc_key_init(card);
+	}
+#endif
+
 	add_disk(card_data->disk);
+
+	if (pinfo->nr_partitions > 1){
+		struct disk_part_iter piter;
+		struct hd_struct *part;
+
+		disk_part_iter_init(&piter, card_data->disk, DISK_PITER_INCL_EMPTY);
+		while ((part = disk_part_iter_next(&piter))){
+			printk("Delete invalid mbr partition part %x, part->partno %d\n", part, part->partno);
+			delete_partition(card_data->disk, part->partno);
+		}
+		disk_part_iter_exit(&piter);
+	}
+
 	add_card_partition(card, card_data->disk, pinfo->partitions,
 			pinfo->nr_partitions);
-
 	return 0;
 }
 

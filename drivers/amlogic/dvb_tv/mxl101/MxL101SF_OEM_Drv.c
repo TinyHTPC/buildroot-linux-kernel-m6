@@ -15,6 +15,9 @@
 //#include "MsTypes.h"
 //#include "drvIIC.h"
 
+static int I2CWrite(UINT8 I2CSlaveAddr, UINT8 *data, int length, struct aml_fe_dev *fe);
+static int  I2CRead(UINT8 I2CSlaveAddr, UINT8 *data, int length, struct aml_fe_dev *fe);
+
 /*------------------------------------------------------------------------------
 --| FUNCTION NAME : Ctrl_ReadRegister
 --| 
@@ -152,7 +155,7 @@ MXL_STATUS Ctrl_GetTime(UINT32 *TimeinMilliseconds)
   return MXL_TRUE;
 }
 
-int I2CWrite(UINT8 I2CSlaveAddr, UINT8 *data, int length, struct aml_fe_dev *fe)
+static int I2CWrite(UINT8 I2CSlaveAddr, UINT8 *data, int length, struct aml_fe_dev *fe)
  {
 //	printk("\n[I2CWrite] enter I2CSlaveAddr is %x,length is %d,data[0] is %x,data[1] is %x\n",I2CSlaveAddr,length,data[0],data[1]);
    /* I2C write, please port this function*/
@@ -214,7 +217,7 @@ int I2CWrite(UINT8 I2CSlaveAddr, UINT8 *data, int length, struct aml_fe_dev *fe)
       return 1;
  }
  
-int  I2CRead(UINT8 I2CSlaveAddr, UINT8 *data, int length, struct aml_fe_dev *fe)
+static int  I2CRead(UINT8 I2CSlaveAddr, UINT8 *data, int length, struct aml_fe_dev *fe)
  {
      /* I2C read, please port this function*/
 	// 	printk("\n[I2CRead] enter ");

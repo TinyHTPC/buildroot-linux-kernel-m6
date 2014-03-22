@@ -85,9 +85,50 @@ static int card_bus_remove(struct device *dev)
 	return 0;
 }
 
+static ssize_t card_type_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct memory_card *card = dev_to_memory_card(dev);
+
+	switch (card->card_type) {
+	case CARD_SECURE_DIGITAL:
+		return sprintf(buf, "SD\n");
+	case CARD_INAND:		
+	case CARD_INAND_LP:
+		return sprintf(buf, "inand\n");
+
+	default:
+		return -EFAULT;
+	}
+}
+
+static ssize_t card_cid_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct memory_card *card = dev_to_memory_card(dev);
+
+	switch (card->card_type) {
+	case CARD_SECURE_DIGITAL:		
+	case CARD_INAND:		
+	case CARD_INAND_LP:
+		return sprintf(buf, "%08x%08x%08x%08x\n", card->raw_cid[0], card->raw_cid[1],\
+	            card->raw_cid[2], card->raw_cid[3]);
+
+	default:
+		return -EFAULT;
+	}
+}
+
+static struct device_attribute card_dev_attrs[] = {
+	__ATTR(type, S_IRUGO, card_type_show, NULL),
+    __ATTR(cid, S_IRUGO, card_cid_show, NULL),
+	__ATTR_NULL,
+};
+
 static struct bus_type card_bus_type = {
 	.name = "memorycard",
 	.match = card_bus_match,
+	.dev_attrs	= card_dev_attrs,
 	.probe = card_bus_probe,
 	.remove = card_bus_remove,
 	.suspend = card_bus_suspend,

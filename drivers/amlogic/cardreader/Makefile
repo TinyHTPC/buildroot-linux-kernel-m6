@@ -16,6 +16,7 @@ obj-$(CONFIG_CF) += cf/
 obj-$(CONFIG_MS_MSPRO) += ms/
 obj-$(CONFIG_XD) += xd/
 obj-$(CONFIG_AML_CARD_KEY)	+=	card_key.o
+obj-$(CONFIG_AML_EMMC_KEY) += emmc_key.o
 
 #include $(TOPDIR)/Rules.make
 

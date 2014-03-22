@@ -16,6 +16,7 @@
 #include "MxL101SF_PhyDefs.h"
 #include "MxL101SF_OEM_Drv.h"
 
+#include "demod_MxL101SF.h"
 
 #if 0
 #define printdebug printf
@@ -326,6 +327,9 @@ MXL_STATUS MxL101SF_API_TuneRF(PMXL_RF_TUNE_CFG_T TuneParamPtr, struct aml_fe_de
   UINT32 cellIdEndTime;
   UINT16 TimeOut;
   UINT8 agcLockStatus;
+	int count = 0;
+	struct dvb_frontend *mxl_fe_use = fe->fe->fe;
+	int async_ret = 0;
   printdebug("MxL101SF_API_TuneRF] in\n");
   // Stop Tune
   status = Ctrl_WriteRegister(START_TUNE_REG, 0, fe);
@@ -356,6 +360,7 @@ printdebug("mxl_mode is %d,\n",mxl_mode);
     cellIdEndTime = cellIdStartTime;   
     TimeOut = 300;
   
+#if  0
     while ((cellIdEndTime - cellIdStartTime) < TimeOut)  
     {
       // Check for CP Lock
@@ -369,7 +374,25 @@ printdebug("mxl_mode is %d,\n",mxl_mode);
 
       Ctrl_GetTime(&cellIdEndTime);
     }
+#endif
+	mxl_fe_use->ops.asyncinfo.set_frontend_asyncpreproc(mxl_fe_use);
+	for(count = 0; count < 6; count++){
+		// Check for CP Lock
+		status |= MxLWare_API_GetDemodStatus(MXL_DEMOD_CP_LOCK_REQ, &cpLock, fe);
 
+		if (cpLock.Status == MXL_LOCKED) 
+		{
+			cpLockStatus = MXL_ON;
+			break;
+		}
+
+		async_ret = mxl_fe_use->ops.asyncinfo.set_frontend_asyncwait(mxl_fe_use, 50);
+		if(async_ret > 0){
+			mxl_fe_use->ops.asyncinfo.set_frontend_asyncpostproc(mxl_fe_use, async_ret);
+			return MXL_FALSE;
+		}		
+	}
+	mxl_fe_use->ops.asyncinfo.set_frontend_asyncpostproc(mxl_fe_use, async_ret);
     if (cpLockStatus == MXL_OFF) 
     {
       if (TuneParamPtr->TpsCellIdRbCtrl != MXL_ENABLE)
@@ -399,7 +422,7 @@ printdebug("mxl_mode is %d,\n",mxl_mode);
 
       if (agcLockStatus)
         TimeOut = 2048;
-
+#if 0
       while ((cellIdEndTime - cellIdStartTime) < 350)  
       {
         // Check for CP Lock
@@ -414,8 +437,30 @@ printdebug("mxl_mode is %d,\n",mxl_mode);
         }
         Ctrl_GetTime(&cellIdEndTime);
       }
+#endif
 
       status |= Ctrl_ProgramRegisters(MxL_DisableCellId, fe); 
+
+	MXL_DEMOD_LOCK_STATUS_T rsLockStatus;
+
+	mxl_fe_use->ops.asyncinfo.set_frontend_asyncpreproc(mxl_fe_use);
+	  for(count=0;count<10;count++){
+	  	MxLWare_API_GetDemodStatus(MXL_DEMOD_RS_LOCK_REQ, &rsLockStatus, fe);
+		if(rsLockStatus.Status == 1){
+			printf("__tune4,lock success\n");
+			//msleep(200);
+			async_ret = mxl_fe_use->ops.asyncinfo.set_frontend_asyncwait(mxl_fe_use, 200);
+			break;
+		}
+
+		//msleep(50);
+		async_ret = mxl_fe_use->ops.asyncinfo.set_frontend_asyncwait(mxl_fe_use, 50);
+		if(async_ret > 0){
+			break;
+		}
+			
+	  }
+	mxl_fe_use->ops.asyncinfo.set_frontend_asyncpostproc(mxl_fe_use, async_ret);
 	  
     }
   }

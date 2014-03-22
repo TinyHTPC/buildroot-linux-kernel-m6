@@ -195,7 +195,7 @@ int AVL_Get_Quality_Percent(struct AVL_DVBSx_Chip * pAVLChip)
     AVL_uint16 uiLockStatus=0;
     AVL_uchar SNRrefer = 0;;
     AVL_uchar Quality=5;
-	AVL_uchar i;
+	AVL_uchar i,j;
     struct AVL_DVBSx_SignalInfo SignalInfo;      
 
 	for(i=0;i<5;i++)
@@ -242,7 +242,93 @@ int AVL_Get_Quality_Percent(struct AVL_DVBSx_Chip * pAVLChip)
     {
         Quality = 5;
     }
+
+	//20131024 add by shijie.rong  -- avl status
+#ifdef avl_debug
+	switch(SignalInfo.m_coderate){
+		case RX_DVBS_1_2:
+			printf("[DVBS2 status] RX_DVBS_1_2\n");
+			break;
+		case RX_DVBS_2_3:
+			printf("[DVBS2 status] RX_DVBS_2_3\n");
+			break;
+		case RX_DVBS_3_4:
+			printf("[DVBS2 status] RX_DVBS_3_4\n");
+			break;
+		case RX_DVBS_5_6:
+			printf("[DVBS2 status] RX_DVBS_5_6\n");
+			break;
+		case RX_DVBS_6_7:
+			printf("[DVBS2 status] RX_DVBS_6_7\n");
+			break;
+		case RX_DVBS_7_8:
+			printf("[DVBS2 status] RX_DVBS_7_8\n");
+			break;
+		case RX_DVBS2_1_4:
+			printf("[DVBS2 status] RX_DVBS2_1_4\n");
+			break;
+		case RX_DVBS2_1_3:
+			printf("[DVBS2 status] RX_DVBS2_1_3\n");
+			break;
+		case RX_DVBS2_2_5:
+			printf("[DVBS2 status] RX_DVBS2_2_5\n");
+			break;
+		case RX_DVBS2_1_2:
+			printf("[DVBS2 status] RX_DVBS2_1_2\n");
+			break;
+		case RX_DVBS2_3_5:
+			printf("[DVBS2 status] RX_DVBS2_3_5\n");
+			break;
+		case RX_DVBS2_2_3:
+			printf("[DVBS2 status] RX_DVBS2_2_3\n");
+			break;
+		case RX_DVBS2_3_4:
+			printf("[DVBS2 status] RX_DVBS2_3_4\n");
+			break;
+		case RX_DVBS2_4_5:
+			printf("[DVBS2 status] RX_DVBS2_4_5\n");
+			break;
+		case RX_DVBS2_5_6:
+			printf("[DVBS2 status] RX_DVBS2_5_6\n");
+			break;
+		case RX_DVBS2_8_9:
+			printf("[DVBS2 status] RX_DVBS2_8_9\n");
+			break;
+		case RX_DVBS2_9_10:
+			printf("[DVBS2 status] RX_DVBS2_9_10\n");
+			break;
+	}
 	
+	switch(SignalInfo.m_modulation){
+		case AVL_DVBSx_MM_QPSK:
+			printf("[DVBS2 status] AVL_DVBSx_MM_QPSK\n");
+			break;
+		case AVL_DVBSx_MM_8PSK:
+			printf("[DVBS2 status] AVL_DVBSx_MM_8PSK\n");
+			break;
+		case AVL_DVBSx_MM_16APSK:
+			printf("[DVBS2 status] AVL_DVBSx_MM_16APSK\n");
+			break;
+		case AVL_DVBSx_MM_32APSK:
+			printf("[DVBS2 status] AVL_DVBSx_MM_32APSK\n");
+			break;
+	}
+
+	switch(SignalInfo.m_rolloff){
+		case AVL_DVBSx_RO_20:
+			printf("[DVBS2 status] AVL_DVBSx_RO_20\n");
+			break;
+		case AVL_DVBSx_RO_25:
+			printf("[DVBS2 status] AVL_DVBSx_RO_25\n");
+			break;
+		case AVL_DVBSx_RO_35:
+			printf("[DVBS2 status] AVL_DVBSx_RO_35\n");
+			break;
+	}
+	
+	printf("[DVBS2 status] snr is %ddb,quality is %d,pilot is %d\n",uiSNR/8,Quality,SignalInfo.m_pilot);
+#endif
+
 	return Quality;
 }    
 
@@ -298,6 +384,8 @@ AVL_int16 AVL_Get_Level_Percent(struct AVL_DVBSx_Chip * pAVLChip)
 		Percent = Percent_Space_Low+ (Level_Low_Stage-i)*Percent_Space_Mid/(Level_Low_Stage-Level_High_Stage);
 	else
 		Percent =(90-i)*Percent_Space_Low/(90-Level_Low_Stage);
+
+	printf("[DVBS2 status] RX_DVBS_1_2\n");
 
 	return Percent;	
 }
@@ -656,7 +744,7 @@ AVL_uint32 AVL6211_GETSignalLevel(void)
 	struct AVL_DVBSx_Chip * pAVLChip = &g_stAvlDVBSxChip[HandIndex];
 	AVL_DVBSx_ErrorCode r = AVL_DVBSx_EC_OK;
 	AVL_uint16 uiRFSignalLevel;
-	AVL_int16  uiRFSignalDBM=0;
+	AVL_int16  uiRFSignalDBM;
 	//This function can be called to get the RF signal level after the channel locked.
 	   r = AVL_DVBSx_IRx_GetSignalLevel(&uiRFSignalLevel, pAVLChip);
 	   if (AVL_DVBSx_EC_OK != r)
@@ -682,7 +770,7 @@ AVL_uint32 AVL6211_GETSignalLevel(void)
 			   } 
 		   }	   
 	   //  printf("RFSignalLevel::%.1fdbm\n",(float)(uiRFSignalDBM/10.0));
-		   printf("RFSignalLevel::%ddbm\n",uiRFSignalDBM/10);
+		   printf("[DVBS2 status] RFSignalLevel::%ddbm\n",uiRFSignalDBM/10);
 	   }  
 
 	return uiRFSignalDBM;

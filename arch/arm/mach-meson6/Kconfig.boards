@@ -23,7 +23,7 @@ config MACH_MESON6_REFG18_ATV106
           
 config MACH_MESON6_REFG18_ITV05
 	depends on ARCH_MESON6
-	bool "TinyHTPC ITV05 board"
+	bool "TinyHTPC ITV05 platform"
 	default y 
 	help
           Support for TinyHTPC ITV05 MX device

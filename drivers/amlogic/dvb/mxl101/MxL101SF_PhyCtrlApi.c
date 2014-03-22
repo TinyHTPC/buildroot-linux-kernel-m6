@@ -429,7 +429,7 @@ printdebug("mxl_mode is %d,\n",mxl_mode);
 	  	MxLWare_API_GetDemodStatus(MXL_DEMOD_RS_LOCK_REQ, &rsLockStatus);
 		if(rsLockStatus.Status == 1){
 			printf("__tune4,lock success\n");
-			msleep(200);
+			msleep(100);
 			break;
 		}
 

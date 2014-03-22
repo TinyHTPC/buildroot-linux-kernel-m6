@@ -95,6 +95,11 @@ config AM_LGS9XB1
 	depends on AM_DVB
 	help
 		Select to enable LGS9XB1 demod driver.	
-
+config AM_SI2168
+	tristate "SI2168 demod driver"
+	default n
+	depends on AM_DVB
+	help
+		Select to enable SI2168 demod driver.
 endmenu
 

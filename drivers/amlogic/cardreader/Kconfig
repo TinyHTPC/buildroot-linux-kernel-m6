@@ -49,8 +49,8 @@ config INAND_LP
 	bool "enable inand register last partition as a full block device"
 	depends on INAND
 	select SD_MMC
-config AML_CARD_KEY
-	bool "Meson key data store in card device (dev/nand_key) support"
+config AML_EMMC_KEY
+	bool "Meson key data store in emmc device support"
 	depends on INAND
 	depends on CARDREADER
 	depends on ARCH_MESON3 || ARCH_MESON6

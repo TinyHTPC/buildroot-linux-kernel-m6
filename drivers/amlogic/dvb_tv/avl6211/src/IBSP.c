@@ -58,6 +58,9 @@ const struct AVL_DVBSx_PllConf pll_conf[] =
 
 const AVL_uint16 pll_array_size = sizeof(pll_conf)/sizeof(struct AVL_DVBSx_PllConf);
 
+static AVL_int32 I2CWrite(AVL_uchar I2CSlaveAddr, AVL_uchar *data, AVL_int32 length);
+static AVL_int32  I2CRead(AVL_uchar I2CSlaveAddr, AVL_uchar *data, AVL_int32 length);
+
 AVL_DVBSx_ErrorCode AVL_DVBSx_IBSP_Initialize(void)
 {
 	return(AVL_DVBSx_EC_OK);
@@ -123,7 +126,7 @@ AVL_DVBSx_ErrorCode AVL_DVBSx_IBSP_ReleaseSemaphore( AVL_psemaphore pSemaphore )
 extern struct aml_fe_dev * avl6211_get_cur_dev(void);
 
 
-extern AVL_int32 I2CWrite(AVL_uchar I2CSlaveAddr, AVL_uchar *data, AVL_int32 length)
+static AVL_int32 I2CWrite(AVL_uchar I2CSlaveAddr, AVL_uchar *data, AVL_int32 length)
  {
 //	printk("\n[I2CWrite] enter I2CSlaveAddr is %x,length is %d,data is %x, %x,%x\n",I2CSlaveAddr,length,data[0],data[1],data[2]);
 //	printk("I2CSlaveAddr is %d\n",I2CSlaveAddr);
@@ -189,7 +192,7 @@ extern AVL_int32 I2CWrite(AVL_uchar I2CSlaveAddr, AVL_uchar *data, AVL_int32 len
       return 1;
  }
  
-extern AVL_int32  I2CRead(AVL_uchar I2CSlaveAddr, AVL_uchar *data, AVL_int32 length)
+static AVL_int32  I2CRead(AVL_uchar I2CSlaveAddr, AVL_uchar *data, AVL_int32 length)
  {
      /* I2C read, please port this function*/
 	//	printk("I2CSlaveAddr is %d,length is %d\n",I2CSlaveAddr,length);

@@ -23,6 +23,7 @@
 #include <linux/dvb/frontend.h>
 #include "../../../media/dvb/dvb-core/dvb_frontend.h"
 #include "../aml_fe.h"
+#include "../aml_dvb.h"
 #define printf printk
 
 extern void MxL101SF_Init(struct aml_fe_dev *fe);

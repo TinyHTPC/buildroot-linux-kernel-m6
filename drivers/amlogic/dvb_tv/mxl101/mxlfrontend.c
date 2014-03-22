@@ -137,7 +137,7 @@ static int mxl101_fe_get_ops(struct aml_fe_dev *dev, int mode, void *ops)
 
 	fe_ops->info.frequency_min = 51000000;
 	fe_ops->info.frequency_max = 858000000;
-	fe_ops->info.frequency_stepsize = 166667;
+	fe_ops->info.frequency_stepsize = 0;
 	fe_ops->info.frequency_tolerance = 0;
 	fe_ops->info.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 			FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 | FE_CAN_FEC_AUTO |
@@ -156,6 +156,8 @@ static int mxl101_fe_get_ops(struct aml_fe_dev *dev, int mode, void *ops)
 	fe_ops->read_signal_strength = mxl101_read_signal_strength;
 	fe_ops->read_snr = mxl101_read_snr;
 	fe_ops->read_ucblocks = mxl101_read_ucblocks;
+
+	fe_ops->asyncinfo.set_frontend_asyncenable = 1;
 	
 	return 0;
 }

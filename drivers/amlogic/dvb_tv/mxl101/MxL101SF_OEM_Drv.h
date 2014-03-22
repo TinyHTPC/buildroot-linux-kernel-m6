@@ -45,8 +45,6 @@
 ******************************************************************************/
 MXL_STATUS Ctrl_Sleep(UINT16 TimeinMilliseconds);
 MXL_STATUS Ctrl_GetTime(UINT32 *TimeinMilliseconds);
-int I2CWrite(UINT8 I2CSlaveAddr, UINT8 *data, int length, struct aml_fe_dev *fe);
-int I2CRead(UINT8 I2CSlaveAddr, UINT8 *data, int length, struct aml_fe_dev *fe);
 
 #endif /* __MXL_CTRL_HWD_H__*/
 

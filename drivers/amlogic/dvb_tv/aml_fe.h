@@ -37,10 +37,12 @@ typedef enum{
 	AM_FE_QAM  = 2,
 	AM_FE_OFDM = 4,
 	AM_FE_ATSC = 8,
-	AM_FE_ANALOG = 16
+	AM_FE_ANALOG = 16,
+	AM_FE_DTMB = 32,
+	AM_FE_ISDBT = 64
 }aml_fe_mode_t;
 
-#define AM_FE_DTV_MASK (AM_FE_QPSK|AM_FE_QAM|AM_FE_OFDM|AM_FE_ATSC)
+#define AM_FE_DTV_MASK (AM_FE_QPSK|AM_FE_QAM|AM_FE_OFDM|AM_FE_ATSC|AM_FE_DTMB|AM_FE_ISDBT)
 
 typedef enum{
 	AM_TUNER_SI2176     = 1,
@@ -63,7 +65,10 @@ typedef enum{
 	AM_DTV_DEMOD_SI2176 = 1,
 	AM_DTV_DEMOD_MXL101 = 2,
 	AM_DTV_DEMOD_SI2196 = 3,
-	AM_DTV_DEMOD_AVL6211 = 4	
+	AM_DTV_DEMOD_AVL6211 = 4,
+	AM_DTV_DEMOD_SI2168 = 5,
+	AM_DTV_DEMOD_ITE9133 = 6,
+	AM_DTV_DEMOD_ITE9173 = 7
 }aml_dtv_demod_type_t;
 
 typedef enum{
@@ -90,6 +95,8 @@ struct aml_fe_drv{
 };
 
 struct aml_fe_dev{
+	/*point to parent aml_fe*/
+	struct aml_fe *fe;
 	int      i2c_adap_id;
 	int      i2c_addr;
 	struct i2c_adapter *i2c_adap;
@@ -108,7 +115,7 @@ struct aml_fe_dev{
 };
 
 struct aml_fe{
-	struct dvb_frontend  fe;
+	struct dvb_frontend *fe;
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	struct early_suspend es;
 #endif /*CONFIG_HAS_EARLYSUSPEND*/
@@ -126,10 +133,11 @@ struct aml_fe{
 };
 
 struct aml_fe_man{
-	struct aml_fe      fe[FE_DEV_COUNT];
-	struct aml_fe_dev  tuner[FE_DEV_COUNT];
-	struct aml_fe_dev  atv_demod[FE_DEV_COUNT];
-	struct aml_fe_dev  dtv_demod[FE_DEV_COUNT];
+	struct aml_fe       fe[FE_DEV_COUNT];
+	struct aml_fe_dev   tuner[FE_DEV_COUNT];
+	struct aml_fe_dev   atv_demod[FE_DEV_COUNT];
+	struct aml_fe_dev   dtv_demod[FE_DEV_COUNT];
+	struct dvb_frontend dev[FE_DEV_COUNT];
 };
 
 extern int aml_register_fe_drv(aml_fe_dev_type_t type, struct aml_fe_drv *drv);

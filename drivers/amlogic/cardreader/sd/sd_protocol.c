@@ -1390,7 +1390,7 @@ int sd_send_cmd_hw(SD_MMC_Card_Info_t *sd_mmc_info, unsigned char cmd, unsigned 
         else
     	    timeout = SD_MMC_CMD_COUNT;
     }
-    if(cmd == SD_SWITCH_FUNCTION)
+    if(cmd == SD_SEND_SCR || cmd == SD_SWITCH_FUNCTION || cmd == MMC_SEND_EXT_CSD)
         timeout = SD_MMC_WRITE_BUSY_COUNT;
     if(cmd == SD_MMC_STOP_TRANSMISSION)
         timeout = SD_MMC_WAIT_STOP_COUNT;
@@ -3594,6 +3594,15 @@ static int sd_change_to_low_voltage(SD_MMC_Card_Info_t *sd_mmc_info)
 	}	
 }
 */
+void mmc_data3_pull_high(void)
+{
+    printk("mmc data3 pull high\n");
+    CLEAR_CBUS_REG_MASK(0x2015,(0x1<<3));
+    SET_CBUS_REG_MASK(0x2016,(0x1<<3));
+    CLEAR_CBUS_REG_MASK(PERIPHS_PIN_MUX_6, (0x1<<26)); //D3
+
+}
+
 int sd_voltage_validation(SD_MMC_Card_Info_t *sd_mmc_info)
 {
 	unsigned char response[MAX_RESPONSE_BYTES];
@@ -3631,6 +3640,7 @@ int sd_voltage_validation(SD_MMC_Card_Info_t *sd_mmc_info)
 	    if(ret == SD_MMC_ERROR_TIMEOUT)
 	    {	
 			printk("SEND OP timeout @1\n");
+			mmc_data3_pull_high();
 		    error = sd_hw_reset(sd_mmc_info);
 		    if(error)
 		    {
@@ -4265,6 +4275,7 @@ int sd_identify_process(SD_MMC_Card_Info_t *sd_mmc_info)
 
 	if(sd_mmc_info->card_type == CARD_TYPE_EMMC)
 	{
+		mdelay(1);
 		ret = sd_send_cmd_hw(sd_mmc_info,MMC_SEND_EXT_CSD, 0, RESPONSE_R1, response, mmc_ext_csd_buf, sizeof(MMC_REG_EXT_CSD_t), 1);		
         if(ret)
             return ret;
@@ -4712,6 +4723,7 @@ int sd_mmc_init(SD_MMC_Card_Info_t *sd_mmc_info)
 		goto error;
 	}
 	sd_mmc_set_input(sd_mmc_info);
+	mmc_data3_pull_high();
 	error = sd_hw_reset(sd_mmc_info);
 	if(error)
 	{
@@ -6032,7 +6044,7 @@ int sd_mmc_switch_function(SD_MMC_Card_Info_t *sd_mmc_info)
 				if(sd_mmc_info->max_clock > 3)
 					config_reg->cmd_clk_divide = sd_mmc_info->max_clock;
 				else
-					config_reg->cmd_clk_divide = 3;
+					config_reg->cmd_clk_divide = 1;
 		        	WRITE_CBUS_REG(SDIO_CONFIG, sdio_config);
 					sd_mmc_info->sdio_clk = clk_get_rate(clk_get_sys("clk81", NULL))/2000000/(config_reg->cmd_clk_divide + 1);
 					sd_mmc_info->sdio_clk_unit = 1000/sd_mmc_info->sdio_clk;		        	
@@ -6085,10 +6097,12 @@ int sd_check_sdio_card_type(SD_MMC_Card_Info_t *sd_mmc_info)
 	unsigned char read_reg_data;
 	unsigned char write_reg_data;
 	unsigned write_addr;
-
-	for(function_no=1; function_no<sd_mmc_info->sdio_function_nums; function_no++)
-	{
+	
+	for(function_no=0; function_no<=sd_mmc_info->sdio_function_nums; function_no++)
 		sd_mmc_info->sdio_blk_len[function_no] = 1;
+	
+	for(function_no=1; function_no<=sd_mmc_info->sdio_function_nums; function_no++)
+	{
 		read_reg_data = 0;
 		error = sdio_read_reg(sd_mmc_info, 0, function_no<<8, &read_reg_data);
 		if(error)
@@ -6205,7 +6219,7 @@ int sd_check_sdio_card_type(SD_MMC_Card_Info_t *sd_mmc_info)
 			error = sdio_write_reg(sd_mmc_info, 0, write_addr, &write_reg_data, SDIO_Read_After_Write);
 			if(error)
 			{
-				sd_mmc_info->sdio_blk_len[1] = 1;
+				sd_mmc_info->sdio_blk_len[2] = 1;
 			}
 			else
 			{

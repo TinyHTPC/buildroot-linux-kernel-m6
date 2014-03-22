@@ -56,11 +56,11 @@ extern struct AVL_DVBSx_Chip * pAVLChip_all;
 AVL_semaphore blindscanSem;
 static int blindstart=0;
 struct dvb_frontend *fe_use = NULL;
-struct aml_fe_dev *cur_dev = NULL;
+struct aml_fe_dev *cur_dvbdev = NULL;
 
 struct aml_fe_dev * avl6211_get_cur_dev(void)
 {
-	return cur_dev;
+	return cur_dvbdev;
 }
 
 static int AVL6211_Reset(int reset_gpio)
@@ -510,6 +510,8 @@ static int AVL6211_Read_Ucblocks(struct dvb_frontend *fe, u32 * ucblocks)
 
 static int AVL6211_Set_Frontend(struct dvb_frontend *fe, struct dvb_frontend_parameters *p)
 {
+	int async_ret = 0;
+
 	if(initflag!=0)
 	{
 		pr_dbg("[%s] avl6211 init fail\n",__FUNCTION__);
@@ -556,7 +558,15 @@ static int AVL6211_Set_Frontend(struct dvb_frontend *fe, struct dvb_frontend_par
 		return (r);
 	}
 	pr_dbg("Tuner test ok !\n");
-	msleep(50);
+	//msleep(50);
+	fe->ops.asyncinfo.set_frontend_asyncpreproc(fe);
+	async_ret = fe->ops.asyncinfo.set_frontend_asyncwait(fe, 50);
+	if(async_ret > 0){
+		fe->ops.asyncinfo.set_frontend_asyncpostproc(fe, async_ret);
+		AVL_DVBSx_IBSP_ReleaseSemaphore(&blindscanSem);
+		return 0;
+	}	
+	fe->ops.asyncinfo.set_frontend_asyncpostproc(fe, async_ret);	
 	#if 0
 	Channel.m_uiSymbolRate_Hz = p->u.qam.symbol_rate;      //Change the value defined by macro when we want to lock a new channel.
 	Channel.m_Flags = (CI_FLAG_MANUAL_LOCK_MODE) << CI_FLAG_MANUAL_LOCK_MODE_BIT;		//Manual lock Flag
@@ -615,9 +625,15 @@ static int AVL6211_Set_Frontend(struct dvb_frontend *fe, struct dvb_frontend_par
         waittime = 15;        //The max waiting time is 300ms,considering the IQ swapped status the time should be doubled.
 	} 
 	int lockstatus = 0;
+	fe->ops.asyncinfo.set_frontend_asyncpreproc(fe);
 	while(waittime)
 	{
-		msleep(20);
+		//msleep(20);
+		async_ret = fe->ops.asyncinfo.set_frontend_asyncwait(fe, 20);
+		if(async_ret > 0){
+			break;
+		}
+		
 		lockstatus=AVL6211_GETLockStatus();
 		if(1==lockstatus){
 			pr_dbg("lock success !\n");
@@ -626,6 +642,8 @@ static int AVL6211_Set_Frontend(struct dvb_frontend *fe, struct dvb_frontend_par
 		
 		waittime--;
 	}
+	fe->ops.asyncinfo.set_frontend_asyncpostproc(fe, async_ret);
+	
 	if(!AVL6211_GETLockStatus())
 		pr_dbg("lock timeout !\n");
 	
@@ -718,6 +736,8 @@ static int avl6211_fe_get_ops(struct aml_fe_dev *dev, int mode, void *ops)
 	fe_ops->blindscan_ops.blindscan_scan = AVL6211_Blindscan_Scan;
 	fe_ops->blindscan_ops.blindscan_cancel = AVL6211_Blindscan_Cancel;
 
+	fe_ops->asyncinfo.set_frontend_asyncenable = 1;
+
 	return 0;
 }
 
@@ -725,7 +745,7 @@ static int avl6211_fe_enter_mode(struct aml_fe *fe, int mode)
 {
 	struct aml_fe_dev *dev = fe->dtv_demod;
 
-	cur_dev = dev;
+	cur_dvbdev = dev;
 	pr_dbg("=========================demod init\r\n");
 	AVL_DVBSx_ErrorCode r = AVL_DVBSx_EC_OK;
 	//init sema
@@ -754,6 +774,8 @@ static int avl6211_fe_enter_mode(struct aml_fe *fe, int mode)
 
 static int avl6211_fe_resume(struct aml_fe_dev *dev)
 {
+	cur_dvbdev = dev;
+	
 	pr_dbg("avl6211_fe_resume \n");
 	AVL_DVBSx_ErrorCode r = AVL_DVBSx_EC_OK;
 	//init sema

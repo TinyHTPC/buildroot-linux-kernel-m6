@@ -7,6 +7,7 @@
 #include <mach/irqs.h>
 #include <mach/card_io.h>
 //#include <mach/mod_gate.h>
+#if 0
 #include <linux/cardreader/card_block.h>
 #include <linux/cardreader/cardreader.h>
 #include <linux/cardreader/sdio.h>
@@ -17,7 +18,7 @@
 
 
 #include "sd/sd_protocol.h"
-
+#endif
 
 
 

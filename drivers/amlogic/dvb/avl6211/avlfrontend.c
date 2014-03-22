@@ -528,7 +528,7 @@ static int AVL6211_Init(struct dvb_frontend *fe)
 
 static int AVL6211_Sleep(struct dvb_frontend *fe)
 {
-//	struct avl6211_state *state = fe->demodulator_priv;
+	struct avl6211_state *state = fe->demodulator_priv;
 
 //	GX_Set_Sleep(state, 1);
 
@@ -567,7 +567,7 @@ static int AVL6211_Read_Ber(struct dvb_frontend *fe, u32 * ber)
 static int AVL6211_Read_Signal_Strength(struct dvb_frontend *fe, u16 *strength)
 {
 	if(1==blindstart)
-		return 0;
+		return ;
 	*strength=AVL_Get_Level_Percent(pAVLChip_all);
 //	*strength=AVL6211_GETSignalLevel();
 	return 0;
@@ -708,7 +708,13 @@ static int AVL6211_Set_Frontend(struct dvb_frontend *fe, struct dvb_frontend_par
 	}
 	if(!AVL6211_GETLockStatus())
 		pr_dbg("lock timeout !\n");
-	
+#ifdef avl_debug
+
+	AVL_Get_Quality_Percent(pAVLChip_all);
+	AVL6211_GETSignalLevel();
+
+#endif
+
 	r=AVL_DVBSx_IRx_ResetErrorStat(pAVLChip_all);
 	if (AVL_DVBSx_EC_OK != r)
 	{

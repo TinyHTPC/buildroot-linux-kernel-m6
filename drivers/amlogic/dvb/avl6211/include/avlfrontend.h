@@ -23,7 +23,7 @@
 
 
 #define printf printk
-
+//#define avl_debug
 
 struct avl6211_fe_config {
 	int                   i2c_id;

@@ -93,10 +93,21 @@ void MxL101SF_Init(struct aml_fe_dev *fe)
   mxlMpegOutCfg.MpegSyncPol = MPEG_CLK_IN_PHASE;
   mxlMpegOutCfg.MpegValidPol = MPEG_CLK_IN_PHASE;
 
+#if defined (CONFIG_AMLOGIC_DYNAMIC_FEANDDMX_CONFIG) 
+	if(dmx_get_ts_serial(fe->fe->ts))
+		mxlMpegOutCfg.SerialOrPar = MPEG_DATA_SERIAL;
+	else
+		mxlMpegOutCfg.SerialOrPar = MPEG_DATA_PARALLEL;
+
+	printf("MxL101SF SerialOrPar: %d\n", mxlMpegOutCfg.SerialOrPar);
+#else
+
 #ifdef CONFIG_AMLOGIC_S_TS2
   mxlMpegOutCfg.SerialOrPar = MPEG_DATA_SERIAL;
 #else
   mxlMpegOutCfg.SerialOrPar = MPEG_DATA_PARALLEL;
+#endif
+
 #endif
 
   MxLWare_API_ConfigDevice(MXL_DEV_MPEG_OUT_CFG, &mxlMpegOutCfg, fe);

@@ -59,11 +59,12 @@ extern unsigned SD_PWR_EN_LEVEL;
 
 extern unsigned SD_WORK_MODE;
 #define SD_MMC_POWER_CONTROL
-//#define SD_MMC_WP_CHECK
+#define SD_MMC_WP_CHECK
 
 extern void sd_sdio_enable(SDIO_Pad_Type_t io_pad_type);
 extern void sd_gpio_enable(SDIO_Pad_Type_t io_pad_type);
 extern void sd_gpio_enable_sdioa(void);
+extern void mmc_data3_pull_high(void);
 
 #else				//SD_IO_EXTERNAL
 

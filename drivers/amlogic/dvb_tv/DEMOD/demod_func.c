@@ -715,8 +715,8 @@ void demod_clr_irq_stat()
 
 void demod_set_adc_core_clk_quick(int clk_adc_cfg, int clk_dem_cfg)
 {
-    volatile unsigned long *demod_dig_clk = P_HHI_DEMOD_CLK_CNTL;
-    volatile unsigned long *demod_adc_clk = P_HHI_ADC_PLL_CNTL;
+/*    volatile unsigned long *demod_dig_clk = P_HHI_DEMOD_CLK_CNTL;
+  volatile unsigned long *demod_adc_clk = P_HHI_ADC_PLL_CNTL;
     int unit;
     demod_dig_clk_t dig_clk_cfg;
     demod_adc_clk_t adc_clk_cfg;
@@ -741,7 +741,7 @@ void demod_set_adc_core_clk_quick(int clk_adc_cfg, int clk_dem_cfg)
     freq_vco = freq_osc * pll_m / pll_n;    
     freq_out = freq_vco / (1<<pll_od);
     freq_dem_act = freq_out / div_dem;
-    freq_adc_act = freq_out / div_adc;
+    freq_adc_act = freq_out / div_adc;*/
         
     //printk(" ADC PLL  M %3d   N %3d\n", pll_m, pll_n);
     //printk(" ADC PLL OD %3d  XD %3d\n", pll_od, div_adc);
