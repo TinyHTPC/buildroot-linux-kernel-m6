@@ -64,11 +64,13 @@
 
 	// Fw Array
 	#define Rtl8723_FwImageArray				Rtl8723SFwImgArray
-	#define Rtl8723_FwUMCBCutImageArray			Rtl8723SFwUMCBCutImgArray
+	#define Rtl8723_FwUMCBCutImageArrayWithBT		Rtl8723SFwUMCBCutImgArrayWithBT
+	#define Rtl8723_FwUMCBCutImageArrayWithoutBT	Rtl8723SFwUMCBCutImgArrayWithoutBT
 
 	#define Rtl8723_ImgArrayLength				Rtl8723SImgArrayLength
-	#define Rtl8723_UMCBCutImgArrayLength		Rtl8723SUMCBCutImgArrayLength
-
+	#define Rtl8723_UMCBCutImgArrayWithBTLength		Rtl8723SUMCBCutImgArrayWithBTLength
+	#define Rtl8723_UMCBCutImgArrayWithoutBTLength	Rtl8723SUMCBCutImgArrayWithoutBTLength
+	
 	#define Rtl8723_PHY_REG_Array_PG 			Rtl8723SPHY_REG_Array_PG
 	#define Rtl8723_PHY_REG_Array_PGLength		Rtl8723SPHY_REG_Array_PGLength
 #if MP_DRIVER == 1
@@ -127,10 +129,12 @@
 
 	// Fw Array
 	#define Rtl8723_FwImageArray				Rtl8723UFwImgArray
-	#define Rtl8723_FwUMCBCutImageArray		Rtl8723UFwUMCBCutImgArray
+	#define Rtl8723_FwUMCBCutImageArrayWithBT		Rtl8723UFwUMCBCutImgArrayWithBT
+	#define Rtl8723_FwUMCBCutImageArrayWithoutBT	Rtl8723UFwUMCBCutImgArrayWithoutBT
 
 	#define Rtl8723_ImgArrayLength				Rtl8723UImgArrayLength
-	#define Rtl8723_UMCBCutImgArrayLength		Rtl8723UUMCBCutImgArrayLength
+	#define Rtl8723_UMCBCutImgArrayWithBTLength		Rtl8723UUMCBCutImgArrayWithBTLength
+	#define Rtl8723_UMCBCutImgArrayWithoutBTLength	Rtl8723UUMCBCutImgArrayWithoutBTLength
 
 	#define Rtl8723_PHY_REG_Array_PG 			Rtl8723UPHY_REG_Array_PG
 	#define Rtl8723_PHY_REG_Array_PGLength		Rtl8723UPHY_REG_Array_PGLength
@@ -635,9 +639,6 @@ typedef struct hal_data_8723a
 	// HIQ, MID, LOW, PUB free pages; padapter->xmitpriv.free_txpg
 	u8			SdioTxFIFOFreePage[SDIO_TX_FREE_PG_QUEUE];
 	_lock		SdioTxFIFOFreePageLock;
-	_thread_hdl_ 	SdioXmitThread;
-	_sema		SdioXmitSema;
-	_sema		SdioXmitTerminateSema;
 
 	//
 	// SDIO Rx FIFO related.
@@ -779,9 +780,11 @@ typedef struct phystatus_8723a
 
 
 // rtl8723a_hal_init.c
+int FirmwareDownloadBT(IN PADAPTER Adapter, PRT_FIRMWARE_8723A pFirmware);
 s32 rtl8723a_FirmwareDownload(PADAPTER padapter);
 void rtl8723a_FirmwareSelfReset(PADAPTER padapter);
 void rtl8723a_InitializeFirmwareVars(PADAPTER padapter);
+void _8051Reset8723A(PADAPTER padapter);
 
 void rtl8723a_InitAntenna_Selection(PADAPTER padapter);
 void rtl8723a_DeinitAntenna_Selection(PADAPTER padapter);
@@ -824,7 +827,6 @@ void SetBcnCtrlReg(PADAPTER padapter, u8 SetBits, u8 ClearBits);
 void rtl8723a_InitBeaconParameters(PADAPTER padapter);
 void rtl8723a_InitBeaconMaxError(PADAPTER padapter, u8 InfraMode);
 
-void rtl8723a_clone_haldata(_adapter *dst_adapter, _adapter *src_adapter);
 void rtl8723a_start_thread(_adapter *padapter);
 void rtl8723a_stop_thread(_adapter *padapter);
 
@@ -837,5 +839,11 @@ void rtl8723a_free_checkbthang_workqueue(_adapter * padapter);
 void rtl8723a_cancel_checkbthang_workqueue(_adapter * padapter);
 void rtl8723a_hal_check_bt_hang(_adapter * padapter);
 #endif
+
+
+#ifdef CONFIG_RF_GAIN_OFFSET
+void Hal_ReadRFGainOffset(PADAPTER pAdapter,u8* hwinfo,BOOLEAN AutoLoadFail);
+#endif //CONFIG_RF_GAIN_OFFSET
+
 #endif
 

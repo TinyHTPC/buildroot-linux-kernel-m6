@@ -77,8 +77,6 @@ void free_mlme_ap_info(_adapter *padapter)
 	_enter_critical_bh(&(pstapriv->sta_hash_lock), &irqL);		
 	rtw_free_stainfo(padapter, psta);
 	_exit_critical_bh(&(pstapriv->sta_hash_lock), &irqL);
-	
-
 	_rtw_spinlock_free(&pmlmepriv->bcn_update_lock);
 	
 }
@@ -118,12 +116,16 @@ static void update_BCNTIM(_adapter *padapter)
 			dst_ie = p;
 		}
 		else
-		{		
+		{
 			tim_ielen = 0;
 
 			//calucate head_len		
 			offset = _FIXED_IE_LENGTH_;
-			offset += pnetwork_mlmeext->Ssid.SsidLength + 2;
+
+			/* get ssid_ie len */
+			p = rtw_get_ie(pie + _BEACON_IE_OFFSET_, _SSID_IE_, &tmp_len, (pnetwork_mlmeext->IELength - _BEACON_IE_OFFSET_));
+			if (p != NULL)
+				offset += tmp_len+2;
 
 			// get supported rates len
 			p = rtw_get_ie(pie + _BEACON_IE_OFFSET_, _SUPPORTEDRATES_IE_, &tmp_len, (pnetwork_mlmeext->IELength - _BEACON_IE_OFFSET_));	
@@ -150,9 +152,7 @@ static void update_BCNTIM(_adapter *padapter)
 			pbackup_remainder_ie = rtw_malloc(remainder_ielen);
 			if(pbackup_remainder_ie && premainder_ie)
 				_rtw_memcpy(pbackup_remainder_ie, premainder_ie, remainder_ielen);
-		}		
-
-
+		}
 		
 		*dst_ie++=_TIM_IE_;
 
@@ -292,6 +292,9 @@ void rtw_remove_bcn_ie(_adapter *padapter, WLAN_BSSID_EX *pnetwork, u8 index)
 
 		dst_ie = p;
 	}
+	else {
+		return;
+	}
 
 	if(remainder_ielen>0)
 	{
@@ -376,6 +379,13 @@ void	expire_timeout_chk(_adapter *padapter)
 		psta = LIST_CONTAINOR(plist, struct sta_info, auth_list);
 		plist = get_next(plist);
 	
+
+#ifdef CONFIG_ATMEL_RC_PATCH
+		if (_TRUE == _rtw_memcmp((void *)(pstapriv->atmel_rc_pattern), (void *)(psta->hwaddr), ETH_ALEN))
+			continue;
+		if (psta->flag_atmel_rc)
+			continue;
+#endif
 		if(psta->expire_to>0)
 		{
 			psta->expire_to--;
@@ -420,7 +430,15 @@ void	expire_timeout_chk(_adapter *padapter)
 	{
 		psta = LIST_CONTAINOR(plist, struct sta_info, asoc_list);
 		plist = get_next(plist);
-	
+#ifdef CONFIG_ATMEL_RC_PATCH
+		DBG_871X("%s:%d  psta=%p, %02x,%02x||%02x,%02x  \n\n", __func__,  __LINE__,
+			psta,pstapriv->atmel_rc_pattern[0], pstapriv->atmel_rc_pattern[5], psta->hwaddr[0], psta->hwaddr[5]);
+		if (_TRUE == _rtw_memcmp((void *)pstapriv->atmel_rc_pattern, (void *)(psta->hwaddr), ETH_ALEN))
+			continue;		
+		if (psta->flag_atmel_rc)
+			continue;
+		DBG_871X("%s: debug line:%d \n", __func__, __LINE__);
+#endif	
 		if (chk_sta_is_alive(psta) || !psta->expire_to) {
 			psta->expire_to = pstapriv->expire_to;
 			psta->keep_alive_trycnt = 0;
@@ -500,13 +518,13 @@ void	expire_timeout_chk(_adapter *padapter)
 			pstapriv->asoc_list_cnt--;
 
 			DBG_871X("asoc expire "MAC_FMT", state=0x%x\n", MAC_ARG(psta->hwaddr), psta->state);
-			updated = ap_free_sta(padapter, psta, _TRUE, WLAN_REASON_DEAUTH_LEAVING);
+			updated = ap_free_sta(padapter, psta, _FALSE, WLAN_REASON_DEAUTH_LEAVING);
 		}	
 		else
 		{
 			/* TODO: Aging mechanism to digest frames in sleep_q to avoid running out of xmitframe */
 			if (psta->sleepq_len > (NR_XMITFRAME/pstapriv->asoc_list_cnt)
-				&& padapter->xmitpriv.free_xmitframe_cnt < (NR_XMITFRAME/pstapriv->asoc_list_cnt/2)
+				&& padapter->xmitpriv.free_xmitframe_cnt < ((NR_XMITFRAME/pstapriv->asoc_list_cnt)/2)
 			){
 				DBG_871X("%s sta:"MAC_FMT", sleepq_len:%u, free_xmitframe_cnt:%u, asoc_list_cnt:%u, clear sleep_q\n", __func__
 					, MAC_ARG(psta->hwaddr)
@@ -535,7 +553,15 @@ if (chk_alive_num) {
 		int ret = _FAIL;
 
 		psta = rtw_get_stainfo_by_offset(pstapriv, chk_alive_list[i]);
-
+#ifdef CONFIG_ATMEL_RC_PATCH
+		if (_TRUE == _rtw_memcmp(  pstapriv->atmel_rc_pattern, psta->hwaddr, ETH_ALEN))
+			continue;
+		if (psta->flag_atmel_rc)
+			continue;
+#endif
+		if(!(psta->state &_FW_LINKED))
+			continue;		
+	
 		if (psta->state & WIFI_SLEEP_STATE)
 			ret = issue_nulldata(padapter, psta->hwaddr, 0, 1, 50);
 		else
@@ -549,7 +575,7 @@ if (chk_alive_num) {
 			psta->keep_alive_trycnt = 0;
 			continue;
 		}
-		else if (psta->keep_alive_trycnt <= 3)
+		else if (psta->keep_alive_trycnt <= 30)
 		{
 			DBG_871X("ack check for asoc expire, keep_alive_trycnt=%d\n", psta->keep_alive_trycnt);
 			psta->expire_to = 1;
@@ -560,9 +586,11 @@ if (chk_alive_num) {
 
 		DBG_871X("asoc expire "MAC_FMT", state=0x%x\n", MAC_ARG(psta->hwaddr), psta->state);
 		_enter_critical_bh(&pstapriv->asoc_list_lock, &irqL);
-		rtw_list_delete(&psta->asoc_list);
-		pstapriv->asoc_list_cnt--;
-		updated = ap_free_sta(padapter, psta, _TRUE, WLAN_REASON_DEAUTH_LEAVING);
+		if (rtw_is_list_empty(&psta->asoc_list)==_FALSE) {
+			rtw_list_delete(&psta->asoc_list);
+			pstapriv->asoc_list_cnt--;
+			updated = ap_free_sta(padapter, psta, _FALSE, WLAN_REASON_DEAUTH_LEAVING);
+		}
 		_exit_critical_bh(&pstapriv->asoc_list_lock, &irqL);
 
 	}
@@ -745,15 +773,19 @@ void add_RATid(_adapter *padapter, struct sta_info *psta, u8 rssi_level)
 	if ( pcur_network->Configuration.DSConfig > 14 ) {
 		// 5G band
 		if (tx_ra_bitmap & 0xffff000)
-			sta_band |= WIRELESS_11_5N | WIRELESS_11A;
-		else
+			sta_band |= WIRELESS_11_5N ;
+
+		if (tx_ra_bitmap & 0xff0)
 			sta_band |= WIRELESS_11A;
+		
 	} else {
 		if (tx_ra_bitmap & 0xffff000)
-			sta_band |= WIRELESS_11_24N | WIRELESS_11G | WIRELESS_11B;
-		else if (tx_ra_bitmap & 0xff0)
-			sta_band |= WIRELESS_11G |WIRELESS_11B;
-		else
+			sta_band |= WIRELESS_11_24N;
+
+		if (tx_ra_bitmap & 0xff0)
+			sta_band |= WIRELESS_11G;
+
+		if (tx_ra_bitmap & 0x0f)
 			sta_band |= WIRELESS_11B;
 	}
 
@@ -800,7 +832,7 @@ void add_RATid(_adapter *padapter, struct sta_info *psta, u8 rssi_level)
 
 }
 
-static void update_bmc_sta(_adapter *padapter)
+void update_bmc_sta(_adapter *padapter)
 {
 	_irqL	irqL;
 	u32 init_rate=0;
@@ -890,7 +922,7 @@ static void update_bmc_sta(_adapter *padapter)
 		psta->raid = raid;
 		psta->init_rate = init_rate;
 
-		rtw_stassoc_hw_rpt(padapter, psta);
+		rtw_sta_media_status_rpt(padapter, psta, 1);
 
 		_enter_critical_bh(&psta->lock, &irqL);
 		psta->state = _FW_LINKED;
@@ -1304,15 +1336,15 @@ static void start_bss_network(_adapter *padapter, u8 *pbuf)
 #endif //CONFIG_DUALMAC_CONCURRENT
 	pmlmeext->cur_wireless_mode = pmlmepriv->cur_network.network_type;
 
+	//let pnetwork_mlmeext == pnetwork_mlme.
+	_rtw_memcpy(pnetwork_mlmeext, pnetwork, pnetwork->Length);
+
 	//update cur_wireless_mode
 	update_wireless_mode(padapter);
 
 	//udpate capability after cur_wireless_mode updated
 	update_capinfo(padapter, rtw_get_capability((WLAN_BSSID_EX *)pnetwork));
 	
-	//let pnetwork_mlmeext == pnetwork_mlme.
-	_rtw_memcpy(pnetwork_mlmeext, pnetwork, pnetwork->Length);
-
 #ifdef CONFIG_P2P
 	_rtw_memcpy(pwdinfo->p2p_group_ssid, pnetwork->Ssid.Ssid, pnetwork->Ssid.SsidLength);	
 	pwdinfo->p2p_group_ssid_len = pnetwork->Ssid.SsidLength;
@@ -2542,18 +2574,23 @@ u8 ap_free_sta(_adapter *padapter, struct sta_info *psta, bool active, u16 reaso
 	if(!psta)
 		return beacon_updated;
 
+	if (active == _TRUE)
+	{
 #ifdef CONFIG_80211N_HT
-	//tear down Rx AMPDU
-	send_delba(padapter, 0, psta->hwaddr);// recipient
+		//tear down Rx AMPDU
+		send_delba(padapter, 0, psta->hwaddr);// recipient
 	
-	//tear down TX AMPDU
-	send_delba(padapter, 1, psta->hwaddr);// // originator
-	psta->htpriv.agg_enable_bitmap = 0x0;//reset
-	psta->htpriv.candidate_tid_bitmap = 0x0;//reset
+		//tear down TX AMPDU
+		send_delba(padapter, 1, psta->hwaddr);// // originator
+		
 #endif //CONFIG_80211N_HT
 
-	if (active == _TRUE)
 		issue_deauth(padapter, psta->hwaddr, reason);
+	}
+
+	psta->htpriv.agg_enable_bitmap = 0x0;//reset
+	psta->htpriv.candidate_tid_bitmap = 0x0;//reset
+
 
 	//report_del_sta_event(padapter, psta->hwaddr, reason);
 
@@ -2641,33 +2678,43 @@ int rtw_sta_flush(_adapter *padapter)
 	struct mlme_ext_priv *pmlmeext = &padapter->mlmeextpriv;
 	struct mlme_ext_info	*pmlmeinfo = &(pmlmeext->mlmext_info);
 	u8 bc_addr[ETH_ALEN] = {0xff,0xff,0xff,0xff,0xff,0xff};
+	u8 chk_alive_num = 0;
+	char chk_alive_list[NUM_STA];
+	int i;
 
 	DBG_871X(FUNC_NDEV_FMT"\n", FUNC_NDEV_ARG(padapter->pnetdev));
 
 	if((pmlmeinfo->state&0x03) != WIFI_FW_AP_STATE)
 		return ret;
 
-
 	_enter_critical_bh(&pstapriv->asoc_list_lock, &irqL);
 	phead = &pstapriv->asoc_list;
 	plist = get_next(phead);
-	
-	//free sta asoc_queue
-	while ((rtw_end_of_queue_search(phead, plist)) == _FALSE)	
-	{		
-		psta = LIST_CONTAINOR(plist, struct sta_info, asoc_list);
+
+	while ((rtw_end_of_queue_search(phead, plist)) == _FALSE) {
+		int stainfo_offset;
 		
+		psta = LIST_CONTAINOR(plist, struct sta_info, asoc_list);
 		plist = get_next(plist);
 
+		/* Remove sta from asoc_list */
 		rtw_list_delete(&psta->asoc_list);
 		pstapriv->asoc_list_cnt--;
 
-		//_exit_critical_bh(&pstapriv->asoc_list_lock, &irqL);
-		ap_free_sta(padapter, psta, _TRUE, WLAN_REASON_DEAUTH_LEAVING);
-		//_enter_critical_bh(&pstapriv->asoc_list_lock, &irqL);
+		/* Keep sta for ap_free_sta() beyond this asoc_list loop */
+		stainfo_offset = rtw_stainfo_offset(pstapriv, psta);
+		if (stainfo_offset_valid(stainfo_offset)) {
+			chk_alive_list[chk_alive_num++] = stainfo_offset;
+		}
 	}
 	_exit_critical_bh(&pstapriv->asoc_list_lock, &irqL);
 
+
+	/* For each sta in chk_alive_list, call ap_free_sta */
+	for (i = 0; i < chk_alive_num; i++) {
+		psta = rtw_get_stainfo_by_offset(pstapriv, chk_alive_list[i]);
+		ap_free_sta(padapter, psta, _TRUE, WLAN_REASON_DEAUTH_LEAVING);
+	}
 
 	issue_deauth(padapter, bc_addr, WLAN_REASON_DEAUTH_LEAVING);
 
@@ -2724,6 +2771,73 @@ void ap_sta_info_defer_update(_adapter *padapter, struct sta_info *psta)
 		//add ratid
 		add_RATid(padapter, psta, 0);//DM_RATR_STA_INIT
 	}	
+}
+/* restore hw setting from sw data structures */
+void rtw_ap_restore_network(_adapter *padapter)
+{
+	struct mlme_priv *mlmepriv = &padapter->mlmepriv;
+	struct mlme_ext_priv	*pmlmeext = &padapter->mlmeextpriv;
+	struct mlme_ext_info	*pmlmeinfo = &(pmlmeext->mlmext_info);
+	struct sta_priv * pstapriv = &padapter->stapriv;
+	struct sta_info *psta;
+	struct security_priv* psecuritypriv=&(padapter->securitypriv);
+	_irqL irqL;
+	_list	*phead, *plist;
+	u8 chk_alive_num = 0;
+	char chk_alive_list[NUM_STA];
+	int i;
+
+	rtw_setopmode_cmd(padapter, Ndis802_11APMode,_FALSE);
+
+	set_channel_bwmode(padapter, pmlmeext->cur_channel, pmlmeext->cur_ch_offset, pmlmeext->cur_bwmode);
+
+	start_bss_network(padapter, (u8*)&mlmepriv->cur_network.network);
+
+	if((padapter->securitypriv.dot11PrivacyAlgrthm == _TKIP_) ||
+		(padapter->securitypriv.dot11PrivacyAlgrthm == _AES_))
+	{
+		/* restore group key, WEP keys is restored in ips_leave() */
+		rtw_set_key(padapter, psecuritypriv, psecuritypriv->dot118021XGrpKeyid, 0,_FALSE);
+	}
+
+	_enter_critical_bh(&pstapriv->asoc_list_lock, &irqL);
+	
+	phead = &pstapriv->asoc_list;
+	plist = get_next(phead);
+
+	while ((rtw_end_of_queue_search(phead, plist)) == _FALSE) {
+		int stainfo_offset;
+
+		psta = LIST_CONTAINOR(plist, struct sta_info, asoc_list);
+		plist = get_next(plist);
+
+		stainfo_offset = rtw_stainfo_offset(pstapriv, psta);
+		if (stainfo_offset_valid(stainfo_offset)) {
+			chk_alive_list[chk_alive_num++] = stainfo_offset;
+		}
+	}
+
+	_exit_critical_bh(&pstapriv->asoc_list_lock, &irqL);
+
+	for (i = 0; i < chk_alive_num; i++) {
+		psta = rtw_get_stainfo_by_offset(pstapriv, chk_alive_list[i]);
+
+		if (psta == NULL) {
+			DBG_871X(FUNC_ADPT_FMT" sta_info is null\n", FUNC_ADPT_ARG(padapter));
+		}
+		else if(psta->state &_FW_LINKED)
+		{
+			Update_RA_Entry(padapter, psta);
+			//pairwise key
+			/* per sta pairwise key and settings */
+			if(	(padapter->securitypriv.dot11PrivacyAlgrthm == _TKIP_) ||
+				(padapter->securitypriv.dot11PrivacyAlgrthm == _AES_))
+			{
+				rtw_setstakey_cmd(padapter, (unsigned char *)psta, _TRUE,_FALSE);
+			}			
+		}
+	}
+
 }
 
 void start_ap_mode(_adapter *padapter)

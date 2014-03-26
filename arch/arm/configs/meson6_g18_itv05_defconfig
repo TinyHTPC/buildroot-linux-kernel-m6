@@ -1105,7 +1105,7 @@ CONFIG_RTL8XXX_CU_USB_WIFI=m
 # CONFIG_RTL8192DU is not set
 CONFIG_RTL8188EU=m
 # CONFIG_RT5370 is not set
-# CONFIG_MT7601U is not set
+CONFIG_MT7601U=m
 
 #
 # Amlogic BT Device Support

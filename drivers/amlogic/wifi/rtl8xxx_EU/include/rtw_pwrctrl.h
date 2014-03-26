@@ -257,6 +257,7 @@ struct pwrctrl_priv
 	u8		wowlan_pattern_idx;
 	u8		wowlan_wake_reason;
 	u32		wowlan_pattern_context[8][5];
+	u64		wowlan_fw_iv;
 #endif // CONFIG_WOWLAN
 	_timer 	pwr_state_check_timer;
 	int		pwr_state_check_interval;
@@ -268,7 +269,6 @@ struct pwrctrl_priv
 	//rt_rf_power_state 	current_rfpwrstate;
 	rt_rf_power_state	change_rfpwrstate;
 
-	u8		wepkeymask;
 	u8		bHWPowerdown;//if support hw power down
 	u8		bHWPwrPindetect;
 	u8		bkeepfwalive;		
@@ -295,22 +295,22 @@ struct pwrctrl_priv
 	#endif
 };
 
-#define rtw_get_ips_mode_req(pwrctrlpriv) \
-	(pwrctrlpriv)->ips_mode_req
+#define rtw_get_ips_mode_req(pwrctl) \
+	(pwrctl)->ips_mode_req
 
-#define rtw_ips_mode_req(pwrctrlpriv, ips_mode) \
-	(pwrctrlpriv)->ips_mode_req = (ips_mode)
+#define rtw_ips_mode_req(pwrctl, ips_mode) \
+	(pwrctl)->ips_mode_req = (ips_mode)
 
 #define RTW_PWR_STATE_CHK_INTERVAL 2000
 
-#define _rtw_set_pwr_state_check_timer(pwrctrlpriv, ms) \
+#define _rtw_set_pwr_state_check_timer(pwrctl, ms) \
 	do { \
-		/*DBG_871X("%s _rtw_set_pwr_state_check_timer(%p, %d)\n", __FUNCTION__, (pwrctrlpriv), (ms));*/ \
-		_set_timer(&(pwrctrlpriv)->pwr_state_check_timer, (ms)); \
+		/*DBG_871X("%s _rtw_set_pwr_state_check_timer(%p, %d)\n", __FUNCTION__, (pwrctl), (ms));*/ \
+		_set_timer(&(pwrctl)->pwr_state_check_timer, (ms)); \
 	} while(0)
 	
-#define rtw_set_pwr_state_check_timer(pwrctrlpriv) \
-	_rtw_set_pwr_state_check_timer((pwrctrlpriv), (pwrctrlpriv)->pwr_state_check_interval)
+#define rtw_set_pwr_state_check_timer(pwrctl) \
+	_rtw_set_pwr_state_check_timer((pwrctl), (pwrctl)->pwr_state_check_interval)
 
 extern void rtw_init_pwrctrl_priv(_adapter *adapter);
 extern void rtw_free_pwrctrl_priv(_adapter * adapter);
@@ -332,7 +332,9 @@ extern void rtw_set_ps_mode(PADAPTER padapter, u8 ps_mode, u8 smart_ps, u8 bcn_a
 extern void rtw_set_rpwm(_adapter * padapter, u8 val8);
 extern void LeaveAllPowerSaveMode(PADAPTER Adapter);
 #ifdef CONFIG_IPS
+void _ips_enter(_adapter * padapter);
 void ips_enter(_adapter * padapter);
+int _ips_leave(_adapter * padapter);
 int ips_leave(_adapter * padapter);
 #endif
 
@@ -357,10 +359,18 @@ void rtw_resume_in_workqueue(struct pwrctrl_priv *pwrpriv);
 #endif //CONFIG_RESUME_IN_WORKQUEUE
 
 #if defined(CONFIG_HAS_EARLYSUSPEND ) || defined(CONFIG_ANDROID_POWER)
-#define rtw_is_earlysuspend_registered(pwrpriv) (pwrpriv)->early_suspend.suspend
+bool rtw_is_earlysuspend_registered(struct pwrctrl_priv *pwrpriv);
+bool rtw_is_do_late_resume(struct pwrctrl_priv *pwrpriv);
+void rtw_set_do_late_resume(struct pwrctrl_priv *pwrpriv, bool enable);
 void rtw_register_early_suspend(struct pwrctrl_priv *pwrpriv);
 void rtw_unregister_early_suspend(struct pwrctrl_priv *pwrpriv);
-#endif //CONFIG_HAS_EARLYSUSPEND || CONFIG_ANDROID_POWER
+#else
+#define rtw_is_earlysuspend_registered(pwrpriv) _FALSE
+#define rtw_is_do_late_resume(pwrpriv) _FALSE
+#define rtw_set_do_late_resume(pwrpriv, enable) do {} while (0)
+#define rtw_register_early_suspend(pwrpriv) do {} while (0)
+#define rtw_unregister_early_suspend(pwrpriv) do {} while (0)
+#endif /* CONFIG_HAS_EARLYSUSPEND || CONFIG_ANDROID_POWER */
 
 u8 rtw_interface_ps_func(_adapter *padapter,HAL_INTF_PS_FUNC efunc_id,u8* val);
 void rtw_set_ips_deny(_adapter *padapter, u32 ms);

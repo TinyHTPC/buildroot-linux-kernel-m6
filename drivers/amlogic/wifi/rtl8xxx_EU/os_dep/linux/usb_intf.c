@@ -66,6 +66,23 @@ int rtw_resume_process(_adapter *padapter);
 static int rtw_drv_init(struct usb_interface *pusb_intf,const struct usb_device_id *pdid);
 static void rtw_dev_remove(struct usb_interface *pusb_intf);
 
+static void rtw_dev_shutdown(struct device *dev)
+{
+	struct usb_interface *usb_intf = container_of(dev, struct usb_interface, dev);
+	struct dvobj_priv *dvobj = usb_get_intfdata(usb_intf);
+	_adapter *adapter = dvobj->if1;
+	int i;
+
+	DBG_871X("%s\n", __func__);
+
+	for (i = 0; i<dvobj->iface_nums; i++) {
+		adapter = dvobj->padapters[i];
+		adapter->bSurpriseRemoved = _TRUE;
+	}
+
+	ATOMIC_SET(&dvobj->continual_io_error, MAX_CONTINUAL_IO_ERR+1);
+}
+
 #if (LINUX_VERSION_CODE<=KERNEL_VERSION(2,6,23))
 /* Some useful macros to use to create struct usb_device_id */
  #define USB_DEVICE_ID_MATCH_VENDOR 			 0x0001
@@ -253,7 +270,7 @@ static void rtw_dev_remove(struct usb_interface *pusb_intf);
 	{USB_DEVICE(USB_VENDER_ID_REALTEK, 0x0179)}, /* 8188ETV */ \
 	/*=== Customer ID ===*/ \
 	/****** 8188EUS ********/ \
-	{USB_DEVICE(0x8179, 0x07B8)}, /* Abocom - Abocom */
+	{USB_DEVICE(0x07B8, 0x8179)}, /* Abocom - Abocom */
 
 #ifndef CONFIG_RTL8192C
 	#undef RTL8192C_USB_IDS
@@ -299,14 +316,6 @@ static struct specific_device_id specific_device_id_tbl[] = {
 struct rtw_usb_drv {
 	struct usb_driver usbdrv;
 	int drv_registered;
-
-	_mutex hw_init_mutex;
-#if defined(CONFIG_CONCURRENT_MODE) || defined(CONFIG_DUALMAC_CONCURRENT)
-	//global variable
-	_mutex h2c_fwcmd_mutex;
-	_mutex setch_mutex;
-	_mutex setbw_mutex;
-#endif
 };
 
 #ifdef CONFIG_RTL8192C
@@ -327,6 +336,12 @@ struct rtw_usb_drv rtl8192c_usb_drv = {
 	#endif
 	#ifdef CONFIG_AUTOSUSPEND	
 	.usbdrv.supports_autosuspend = 1,	
+	#endif
+
+	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 19))
+	.usbdrv.drvwrap.driver.shutdown = rtw_dev_shutdown,
+	#else
+	.usbdrv.driver.shutdown = rtw_dev_shutdown,
 	#endif
 };
 
@@ -352,6 +367,12 @@ struct rtw_usb_drv rtl8192d_usb_drv = {
 	#ifdef CONFIG_AUTOSUSPEND	
 	.usbdrv.supports_autosuspend = 1,	
 	#endif
+
+	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 19))
+	.usbdrv.drvwrap.driver.shutdown = rtw_dev_shutdown,
+	#else
+	.usbdrv.driver.shutdown = rtw_dev_shutdown,
+	#endif
 };
 static struct rtw_usb_drv *usb_drv = &rtl8192d_usb_drv;
 #endif /* CONFIG_RTL8192D */
@@ -374,6 +395,12 @@ struct rtw_usb_drv rtl8723a_usb_drv = {
 	#endif
 	#ifdef CONFIG_AUTOSUSPEND	
 	.usbdrv.supports_autosuspend = 1,	
+	#endif
+
+	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 19))
+	.usbdrv.drvwrap.driver.shutdown = rtw_dev_shutdown,
+	#else
+	.usbdrv.driver.shutdown = rtw_dev_shutdown,
 	#endif
 };
 
@@ -398,6 +425,12 @@ struct rtw_usb_drv rtl8188e_usb_drv = {
 	#endif
 	#ifdef CONFIG_AUTOSUSPEND	
 	.usbdrv.supports_autosuspend = 1,	
+	#endif
+
+	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 19))
+	.usbdrv.drvwrap.driver.shutdown = rtw_dev_shutdown,
+	#else
+	.usbdrv.driver.shutdown = rtw_dev_shutdown,
 	#endif
 };
 
@@ -505,6 +538,12 @@ _func_enter_;
 	if ((pdvobjpriv = (struct dvobj_priv*)rtw_zmalloc(sizeof(*pdvobjpriv))) == NULL) {
 		goto exit;
 	}
+
+	_rtw_mutex_init(&pdvobjpriv->hw_init_mutex);
+	_rtw_mutex_init(&pdvobjpriv->h2c_fwcmd_mutex);
+	_rtw_mutex_init(&pdvobjpriv->setch_mutex);
+	_rtw_mutex_init(&pdvobjpriv->setbw_mutex);
+	pdvobjpriv->processing_dev_remove = _FALSE;
 
 	pdvobjpriv->pusbintf = usb_intf ;
 	pusbd = pdvobjpriv->pusbdev = interface_to_usbdev(usb_intf);
@@ -631,7 +670,7 @@ _func_enter_;
 
 	//.3 misc
 	_rtw_init_sema(&(pdvobjpriv->usb_suspend_sema), 0);	
-	rtw_reset_continual_urb_error(pdvobjpriv);
+	rtw_reset_continual_io_error(pdvobjpriv);
 
 	usb_get_dev(pusbd);
 
@@ -640,6 +679,10 @@ _func_enter_;
 free_dvobj:
 	if (status != _SUCCESS && pdvobjpriv) {
 		usb_set_intfdata(usb_intf, NULL);
+		_rtw_mutex_free(&pdvobjpriv->hw_init_mutex);
+		_rtw_mutex_free(&pdvobjpriv->h2c_fwcmd_mutex);
+		_rtw_mutex_free(&pdvobjpriv->setch_mutex);
+		_rtw_mutex_free(&pdvobjpriv->setbw_mutex);
 		rtw_mfree((u8*)pdvobjpriv, sizeof(*pdvobjpriv));
 		pdvobjpriv = NULL;
 	}
@@ -667,6 +710,10 @@ _func_enter_;
 			}
 		}
 		rtw_deinit_intf_priv(dvobj);
+		_rtw_mutex_free(&dvobj->hw_init_mutex);
+		_rtw_mutex_free(&dvobj->h2c_fwcmd_mutex);
+		_rtw_mutex_free(&dvobj->setch_mutex);
+		_rtw_mutex_free(&dvobj->setbw_mutex);
 		rtw_mfree((u8*)dvobj, sizeof(*dvobj));
 	}
 	
@@ -718,7 +765,7 @@ static void usb_intf_stop(_adapter *padapter)
 
 }
 
-static void rtw_dev_unload(_adapter *padapter)
+void rtw_dev_unload(_adapter *padapter)
 {
 	struct net_device *pnetdev= (struct net_device*)padapter->pnetdev;
 	u8 val8;
@@ -741,7 +788,7 @@ static void rtw_dev_unload(_adapter *padapter)
 		}
 
 		//s4.
-		if(!padapter->pwrctrlpriv.bInternalAutoSuspend )			
+		if(!adapter_to_pwrctl(padapter)->bInternalAutoSuspend )			
 		rtw_stop_drv_threads(padapter);
 
 
@@ -750,7 +797,7 @@ static void rtw_dev_unload(_adapter *padapter)
 		{
 			//DBG_871X("r871x_dev_unload()->rtl871x_hal_deinit()\n");
 #ifdef CONFIG_WOWLAN
-			if((padapter->pwrctrlpriv.bSupportRemoteWakeup==_TRUE)&&(padapter->pwrctrlpriv.wowlan_mode==_TRUE)){
+			if((adapter_to_pwrctl(padapter)->bSupportRemoteWakeup==_TRUE)&&(adapter_to_pwrctl(padapter)->wowlan_mode==_TRUE)){
 				DBG_871X("%s bSupportWakeOnWlan==_TRUE  do not run rtw_hal_deinit()\n",__FUNCTION__);
 			}
 			else
@@ -816,7 +863,7 @@ static void process_spec_devid(const struct usb_device_id *pdid)
 #ifdef SUPPORT_HW_RFOFF_DETECTED
 int rtw_hw_suspend(_adapter *padapter )
 {
-	struct pwrctrl_priv *pwrpriv = &padapter->pwrctrlpriv;
+	struct pwrctrl_priv *pwrpriv = adapter_to_pwrctl(padapter);
 	struct usb_interface *pusb_intf = adapter_to_dvobj(padapter)->pusbintf;	
 	struct net_device *pnetdev = padapter->pnetdev;
 	
@@ -894,7 +941,7 @@ error_exit:
 
 int rtw_hw_resume(_adapter *padapter)
 {
-	struct pwrctrl_priv *pwrpriv = &padapter->pwrctrlpriv;
+	struct pwrctrl_priv *pwrpriv = adapter_to_pwrctl(padapter);
 	struct usb_interface *pusb_intf = adapter_to_dvobj(padapter)->pusbintf;
 	struct net_device *pnetdev = padapter->pnetdev;
 
@@ -916,10 +963,10 @@ int rtw_hw_resume(_adapter *padapter)
 		netif_device_attach(pnetdev);	
 		netif_carrier_on(pnetdev);
 
-		if(!netif_queue_stopped(pnetdev))
-      			netif_start_queue(pnetdev);
+		if(!rtw_netif_queue_stopped(pnetdev))
+      			rtw_netif_start_queue(pnetdev);
 		else
-			netif_wake_queue(pnetdev);
+			rtw_netif_wake_queue(pnetdev);
 		
 		pwrpriv->bkeepfwalive = _FALSE;
 		pwrpriv->brfoffbyhw = _FALSE;
@@ -943,17 +990,89 @@ error_exit:
 }
 #endif
 
+#if 1
+#ifdef CONFIG_WOWLAN
+static void rtw_suspend_wow(_adapter *padapter)
+{
+	struct net_device *pnetdev = padapter->pnetdev;
+	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
+	struct pwrctrl_priv *pwrpriv = adapter_to_pwrctl(padapter);
+	struct wifidirect_info*	pwdinfo = &padapter->wdinfo;
+	struct wowlan_ioctl_param poidparam;
+
+	if (check_fwstate(pmlmepriv, _FW_LINKED))
+		pwrpriv->wowlan_mode = _TRUE;
+	else
+		pwrpriv->wowlan_mode = _FALSE;
+	
+	rtw_cancel_all_timer(padapter);		
+	LeaveAllPowerSaveMode(padapter);
+
+	rtw_stop_cmd_thread(padapter);
+
+	
+	//padapter->net_closed = _TRUE;
+	//s1.
+	if(pnetdev)
+	{
+		netif_carrier_off(pnetdev);
+		rtw_netif_stop_queue(pnetdev);
+	}
+
+	if(pwrpriv->bSupportRemoteWakeup==_TRUE && pwrpriv->wowlan_mode==_TRUE){
+		//set H2C command
+		poidparam.subcode=WOWLAN_ENABLE;
+		padapter->HalFunc.SetHwRegHandler(padapter,HW_VAR_WOWLAN,(u8 *)&poidparam);
+	}
+	else
+	{
+		//s2.
+		rtw_disassoc_cmd(padapter, 0, _FALSE);
+	}
+
+
+#ifdef CONFIG_LAYER2_ROAMING_RESUME
+	if(check_fwstate(pmlmepriv, WIFI_STATION_STATE) && check_fwstate(pmlmepriv, _FW_LINKED)&& rtw_p2p_chk_state(pwdinfo, P2P_STATE_NONE))
+	{
+		//DBG_871X("%s:%d assoc_ssid:%s\n", __FUNCTION__, __LINE__, pmlmepriv->assoc_ssid.Ssid);
+		DBG_871X("%s:%d %s(" MAC_FMT "), length:%d assoc_ssid.length:%d\n",__FUNCTION__, __LINE__,
+				pmlmepriv->cur_network.network.Ssid.Ssid,
+				MAC_ARG(pmlmepriv->cur_network.network.MacAddress),
+				pmlmepriv->cur_network.network.Ssid.SsidLength,
+				pmlmepriv->assoc_ssid.SsidLength);
+		
+		rtw_set_roaming(padapter, 1);
+	}
+#endif
+	//s2-2.  indicate disconnect to os
+	rtw_indicate_disconnect(padapter);
+	//s2-3.
+	rtw_free_assoc_resources(padapter, 1);
+#ifdef CONFIG_AUTOSUSPEND
+	if(!pwrpriv->bInternalAutoSuspend )
+#endif
+	//s2-4.
+	rtw_free_network_queue(padapter, _TRUE);
+
+	rtw_dev_unload(padapter);
+	
+	if(check_fwstate(pmlmepriv, _FW_UNDER_SURVEY))
+		rtw_indicate_scan_done(padapter, 1);
+
+	//if(check_fwstate(pmlmepriv, _FW_UNDER_LINKING))
+	//	rtw_indicate_disconnect(padapter);
+
+}
+#endif
 static int rtw_suspend(struct usb_interface *pusb_intf, pm_message_t message)
 {
 	struct dvobj_priv *dvobj = usb_get_intfdata(pusb_intf);
 	_adapter *padapter = dvobj->if1;
 	struct net_device *pnetdev = padapter->pnetdev;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
-	struct pwrctrl_priv *pwrpriv = &padapter->pwrctrlpriv;
+	struct pwrctrl_priv *pwrpriv = dvobj_to_pwrctl(dvobj);
 	struct usb_device *usb_dev = interface_to_usbdev(pusb_intf);
-#ifdef CONFIG_WOWLAN
-	struct wowlan_ioctl_param poidparam;
-#endif // CONFIG_WOWLAN
+
 
 	int ret = 0;
 	u32 start_time = rtw_get_current_time();
@@ -962,11 +1081,14 @@ static int rtw_suspend(struct usb_interface *pusb_intf, pm_message_t message)
 
 	DBG_871X("==> %s (%s:%d)\n",__FUNCTION__, current->comm, current->pid);
 
-#ifdef CONFIG_WOWLAN
-	if (check_fwstate(pmlmepriv, _FW_LINKED))
-		padapter->pwrctrlpriv.wowlan_mode = _TRUE;
-	else
-		padapter->pwrctrlpriv.wowlan_mode = _FALSE;
+
+#ifdef CONFIG_IOL_READ_EFUSE_MAP
+	if(!padapter->bup){
+		u8 bMacPwrCtrlOn = _FALSE;
+		rtw_hal_get_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
+		if(bMacPwrCtrlOn)
+			rtw_hal_power_off(padapter);
+	}
 #endif
 
 	if((!padapter->bup) || (padapter->bDriverStopped)||(padapter->bSurpriseRemoved))
@@ -981,7 +1103,79 @@ static int rtw_suspend(struct usb_interface *pusb_intf, pm_message_t message)
 	#ifdef CONFIG_AUTOSUSPEND	
 	#ifdef SUPPORT_HW_RFOFF_DETECTED
 		// The FW command register update must after MAC and FW init ready.
-		if((padapter->bFWReady) && ( padapter->pwrctrlpriv.bHWPwrPindetect ) && (padapter->registrypriv.usbss_enable ))
+		if((padapter->bFWReady) && (pwrpriv->bHWPwrPindetect ) && (padapter->registrypriv.usbss_enable ))
+		{
+			u8 bOpen = _TRUE;
+			rtw_interface_ps_func(padapter,HAL_USB_SELECT_SUSPEND,&bOpen);
+			//rtl8192c_set_FwSelectSuspend_cmd(padapter,_TRUE ,500);//note fw to support hw power down ping detect
+		}
+	#endif
+	#endif
+	}
+
+	pwrpriv->bInSuspend = _TRUE;		
+
+	_enter_pwrlock(&pwrpriv->lock);
+#ifdef CONFIG_WOWLAN
+	rtw_suspend_wow(padapter);
+#else
+	rtw_suspend_common(padapter);	
+#endif
+	
+#ifdef CONFIG_AUTOSUSPEND
+	pwrpriv->rf_pwrstate = rf_off;
+	pwrpriv->bips_processing = _FALSE;
+#endif
+	_exit_pwrlock(&pwrpriv->lock);
+
+	
+exit:
+	DBG_871X("<===  %s return %d.............. in %dms\n", __FUNCTION__
+		, ret, rtw_get_passing_time_ms(start_time));
+
+	_func_exit_;
+	return ret;
+}
+#else
+static int rtw_suspend(struct usb_interface *pusb_intf, pm_message_t message)
+{
+	struct dvobj_priv *dvobj = usb_get_intfdata(pusb_intf);
+	_adapter *padapter = dvobj->if1;
+	struct net_device *pnetdev = padapter->pnetdev;
+	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
+	struct pwrctrl_priv *pwrpriv = dvobj_to_pwrctl(dvobj);
+	struct usb_device *usb_dev = interface_to_usbdev(pusb_intf);
+#ifdef CONFIG_WOWLAN
+	struct wowlan_ioctl_param poidparam;
+#endif // CONFIG_WOWLAN
+
+	int ret = 0;
+	u32 start_time = rtw_get_current_time();
+	
+	_func_enter_;
+
+	DBG_871X("==> %s (%s:%d)\n",__FUNCTION__, current->comm, current->pid);
+
+#ifdef CONFIG_WOWLAN
+	if (check_fwstate(pmlmepriv, _FW_LINKED))
+		pwrpriv->wowlan_mode = _TRUE;
+	else
+		pwrpriv->wowlan_mode = _FALSE;
+#endif
+
+	if((!padapter->bup) || (padapter->bDriverStopped)||(padapter->bSurpriseRemoved))
+	{
+		DBG_871X("padapter->bup=%d bDriverStopped=%d bSurpriseRemoved = %d\n",
+			padapter->bup, padapter->bDriverStopped,padapter->bSurpriseRemoved);
+		goto exit;
+	}
+	
+	if(pwrpriv->bInternalAutoSuspend )
+	{
+	#ifdef CONFIG_AUTOSUSPEND	
+	#ifdef SUPPORT_HW_RFOFF_DETECTED
+		// The FW command register update must after MAC and FW init ready.
+		if((padapter->bFWReady) && (pwrpriv->bHWPwrPindetect ) && (padapter->registrypriv.usbss_enable ))
 		{
 			u8 bOpen = _TRUE;
 			rtw_interface_ps_func(padapter,HAL_USB_SELECT_SUSPEND,&bOpen);
@@ -994,6 +1188,8 @@ static int rtw_suspend(struct usb_interface *pusb_intf, pm_message_t message)
 	rtw_cancel_all_timer(padapter);		
 	LeaveAllPowerSaveMode(padapter);
 
+	rtw_stop_cmd_thread(padapter);
+
 	_enter_pwrlock(&pwrpriv->lock);
 	//padapter->net_closed = _TRUE;
 	//s1.
@@ -1004,7 +1200,7 @@ static int rtw_suspend(struct usb_interface *pusb_intf, pm_message_t message)
 	}
 
 #ifdef CONFIG_WOWLAN
-	if(padapter->pwrctrlpriv.bSupportRemoteWakeup==_TRUE&&padapter->pwrctrlpriv.wowlan_mode==_TRUE){
+	if(pwrpriv->bSupportRemoteWakeup==_TRUE && pwrpriv->wowlan_mode==_TRUE){
 		//set H2C command
 		poidparam.subcode=WOWLAN_ENABLE;
 		padapter->HalFunc.SetHwRegHandler(padapter,HW_VAR_WOWLAN,(u8 *)&poidparam);
@@ -1027,7 +1223,7 @@ static int rtw_suspend(struct usb_interface *pusb_intf, pm_message_t message)
 				pmlmepriv->cur_network.network.Ssid.SsidLength,
 				pmlmepriv->assoc_ssid.SsidLength);
 		
-		pmlmepriv->to_roaming = 1;
+		rtw_set_roaming(padapter, 1);
 	}
 #endif
 	//s2-2.  indicate disconnect to os
@@ -1061,12 +1257,13 @@ exit:
 	return ret;
 }
 
+#endif
 static int rtw_resume(struct usb_interface *pusb_intf)
 {
 	struct dvobj_priv *dvobj = usb_get_intfdata(pusb_intf);
 	_adapter *padapter = dvobj->if1;
 	struct net_device *pnetdev = padapter->pnetdev;
-	struct pwrctrl_priv *pwrpriv = &padapter->pwrctrlpriv;
+	struct pwrctrl_priv *pwrpriv = dvobj_to_pwrctl(dvobj);
 	 int ret = 0;
  
 	if(pwrpriv->bInternalAutoSuspend ){
@@ -1074,21 +1271,18 @@ static int rtw_resume(struct usb_interface *pusb_intf)
 	} else {
 #ifdef CONFIG_RESUME_IN_WORKQUEUE
 		rtw_resume_in_workqueue(pwrpriv);
-#elif defined(CONFIG_HAS_EARLYSUSPEND) || defined(CONFIG_ANDROID_POWER)
-#ifdef CONFIG_WOWLAN
-		if(rtw_is_earlysuspend_registered(pwrpriv) && 
-			!padapter->pwrctrlpriv.wowlan_mode) {
 #else
-		if(rtw_is_earlysuspend_registered(pwrpriv)) {
-#endif //CONFIG_WOWLAN
-			//jeff: bypass resume here, do in late_resume
-			pwrpriv->do_late_resume = _TRUE;
+		if (rtw_is_earlysuspend_registered(pwrpriv)
+			#ifdef CONFIG_WOWLAN
+			&& !pwrpriv->wowlan_mode
+			#endif /* CONFIG_WOWLAN */
+		) {
+			/* jeff: bypass resume here, do in late_resume */
+			rtw_set_do_late_resume(pwrpriv, _TRUE);
 		} else {
 			ret = rtw_resume_process(padapter);
 		}
-#else // Normal resume process
-		ret = rtw_resume_process(padapter);
-#endif //CONFIG_RESUME_IN_WORKQUEUE
+#endif /* CONFIG_RESUME_IN_WORKQUEUE */
 	}
 	
 	return ret;
@@ -1110,7 +1304,7 @@ int rtw_resume_process(_adapter *padapter)
 
 	if(padapter) {
 		pnetdev= padapter->pnetdev;
-		pwrpriv = &padapter->pwrctrlpriv;
+		pwrpriv = adapter_to_pwrctl(padapter);
 	} else {
 		goto exit;
 	}
@@ -1135,15 +1329,13 @@ int rtw_resume_process(_adapter *padapter)
 	}
 #endif //#ifdef CONFIG_AUTOSUSPEND
 #endif //#ifdef CONFIG_BT_COEXIST
-	rtw_reset_drv_sw(padapter);
-	pwrpriv->bkeepfwalive = _FALSE;
 
-	DBG_871X("bkeepfwalive(%x)\n",pwrpriv->bkeepfwalive);
-	if(pm_netdev_open(pnetdev,_TRUE) != 0)
+
+	if(rtw_resume_common(padapter)!= 0) {
+		DBG_871X("%s rtw_resume_common failed\n",__FUNCTION__);
+		_exit_pwrlock(&pwrpriv->lock);
 		goto exit;
-
-	netif_device_attach(pnetdev);	
-	netif_carrier_on(pnetdev);
+	}
 
 #ifdef CONFIG_AUTOSUSPEND
 	if(pwrpriv->bInternalAutoSuspend )
@@ -1151,7 +1343,7 @@ int rtw_resume_process(_adapter *padapter)
 		#ifdef CONFIG_AUTOSUSPEND
 		#ifdef SUPPORT_HW_RFOFF_DETECTED
 			// The FW command register update must after MAC and FW init ready.
-		if((padapter->bFWReady) && ( padapter->pwrctrlpriv.bHWPwrPindetect ) && (padapter->registrypriv.usbss_enable ))
+		if((padapter->bFWReady) && (pwrpriv->bHWPwrPindetect) && (padapter->registrypriv.usbss_enable ))
 		{
 			//rtl8192c_set_FwSelectSuspend_cmd(padapter,_FALSE ,500);//note fw to support hw power down ping detect
 			u8 bOpen = _FALSE;
@@ -1162,7 +1354,7 @@ int rtw_resume_process(_adapter *padapter)
 #ifdef CONFIG_BT_COEXIST
 		DBG_871X("pwrpriv->bAutoResume (%x)\n",pwrpriv->bAutoResume );
 		if( _TRUE == pwrpriv->bAutoResume ){
-		pwrpriv->bInternalAutoSuspend = _FALSE;
+			pwrpriv->bInternalAutoSuspend = _FALSE;
 			pwrpriv->bAutoResume=_FALSE;
 			DBG_871X("pwrpriv->bAutoResume (%x)  pwrpriv->bInternalAutoSuspend(%x)\n",pwrpriv->bAutoResume,pwrpriv->bInternalAutoSuspend );
 		}
@@ -1171,24 +1363,6 @@ int rtw_resume_process(_adapter *padapter)
 		pwrpriv->bInternalAutoSuspend = _FALSE;
 #endif	//#ifdef CONFIG_BT_COEXIST
 		pwrpriv->brfoffbyhw = _FALSE;
-		{
-			DBG_871X("enc_algorithm(%x),wepkeymask(%x)\n",
-				padapter->securitypriv.dot11PrivacyAlgrthm,pwrpriv->wepkeymask);
-			if(	(_WEP40_ == padapter->securitypriv.dot11PrivacyAlgrthm) ||
-				(_WEP104_ == padapter->securitypriv.dot11PrivacyAlgrthm))
-			{
-				sint keyid;	
-		
-				for(keyid=0;keyid<4;keyid++){				
-					if(pwrpriv->wepkeymask & BIT(keyid)) {
-						if(keyid == padapter->securitypriv.dot11PrivacyKeyIndex)
-							rtw_set_key(padapter,&padapter->securitypriv, keyid, 1);
-						else
-							rtw_set_key(padapter,&padapter->securitypriv, keyid, 0);
-					}
-				}
-			}
-		}
 	}
 #endif
 	_exit_pwrlock(&pwrpriv->lock);
@@ -1196,11 +1370,7 @@ int rtw_resume_process(_adapter *padapter)
 	if( padapter->pid[1]!=0) {
 		DBG_871X("pid[1]:%d\n",padapter->pid[1]);
 		rtw_signal_process(padapter->pid[1], SIGUSR2);
-	}	
-
-	#ifdef CONFIG_LAYER2_ROAMING_RESUME
-	rtw_roaming(padapter, NULL);
-	#endif	
+	}		
 
 	ret = 0;
 exit:
@@ -1220,7 +1390,7 @@ exit:
 #ifdef CONFIG_AUTOSUSPEND
 void autosuspend_enter(_adapter* padapter)	
 {
-	struct pwrctrl_priv *pwrpriv = &padapter->pwrctrlpriv;
+	struct pwrctrl_priv *pwrpriv = adapter_to_pwrctl(padapter);
 	struct dvobj_priv *dvobj = adapter_to_dvobj(padapter);
 	
 	DBG_871X("==>autosuspend_enter...........\n");
@@ -1276,7 +1446,7 @@ void autosuspend_enter(_adapter* padapter)
 int autoresume_enter(_adapter* padapter)
 {
 	int result = _SUCCESS;
-	struct pwrctrl_priv *pwrpriv = &padapter->pwrctrlpriv;
+	struct pwrctrl_priv *pwrpriv = adapter_to_pwrctl(padapter);
 	struct security_priv* psecuritypriv=&(padapter->securitypriv);
 	struct mlme_ext_priv	*pmlmeext = &padapter->mlmeextpriv;
 	struct mlme_ext_info	*pmlmeinfo = &(pmlmeext->mlmext_info);
@@ -1350,6 +1520,14 @@ extern int sw_usb_enable_hcd(__u32 usbc_no);
 static int usb_wifi_host = 2;
 #endif
 
+#ifdef CONFIG_PLATFORM_ARM_SUN6I
+#include <mach/sys_config.h>
+extern int sw_usb_disable_hcd(__u32 usbc_no);
+extern int sw_usb_enable_hcd(__u32 usbc_no);
+extern void wifi_pm_power(int on);
+static script_item_u item;
+#endif
+
 /*
  * drv_init() - a device potentially for us
  *
@@ -1374,6 +1552,9 @@ _adapter *rtw_usb_if1_init(struct dvobj_priv *dvobj,
 	
 	padapter->bDriverStopped=_TRUE;
 
+	dvobj->padapters[dvobj->iface_nums++] = padapter;
+	padapter->iface_id = IFACE_ID0;
+
 #if defined(CONFIG_CONCURRENT_MODE) || defined(CONFIG_DUALMAC_CONCURRENT)
 	//set adapter_type/iface type for primary padapter
 	padapter->isprimary = _TRUE;
@@ -1383,14 +1564,6 @@ _adapter *rtw_usb_if1_init(struct dvobj_priv *dvobj,
 	#else
 	padapter->iface_type = IFACE_PORT1;
 	#endif
-#endif
-
-	padapter->hw_init_mutex = &usb_drv->hw_init_mutex;
-#if defined(CONFIG_CONCURRENT_MODE) || defined(CONFIG_DUALMAC_CONCURRENT)
-	//set global variable to primary adapter
-	padapter->ph2c_fwcmd_mutex = &usb_drv->h2c_fwcmd_mutex;
-	padapter->psetch_mutex = &usb_drv->setch_mutex;
-	padapter->psetbw_mutex = &usb_drv->setbw_mutex;
 #endif
 
 	#ifndef RTW_DVOBJ_CHIP_HW_TYPE
@@ -1441,13 +1614,13 @@ _adapter *rtw_usb_if1_init(struct dvobj_priv *dvobj,
 
 #ifdef CONFIG_PM
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,18))
-	if(padapter->pwrctrlpriv.bSupportRemoteWakeup)
+	if(adapter_to_pwrctl(padapter)->bSupportRemoteWakeup)
 	{
 		dvobj->pusbdev->do_remote_wakeup=1;
 		pusb_intf->needs_remote_wakeup = 1;		
 		device_init_wakeup(&pusb_intf->dev, 1);
-		DBG_871X("\n  padapter->pwrctrlpriv.bSupportRemoteWakeup~~~~~~\n");
-		DBG_871X("\n  padapter->pwrctrlpriv.bSupportRemoteWakeup~~~[%d]~~~\n",device_may_wakeup(&pusb_intf->dev));
+		DBG_871X("\n  pwrctrlpriv.bSupportRemoteWakeup~~~~~~\n");
+		DBG_871X("\n  pwrctrlpriv.bSupportRemoteWakeup~~~[%d]~~~\n",device_may_wakeup(&pusb_intf->dev));
 	}
 #endif
 #endif
@@ -1487,34 +1660,12 @@ _adapter *rtw_usb_if1_init(struct dvobj_priv *dvobj,
 				}
 	#endif
 #ifdef	CONFIG_BT_COEXIST
-	padapter->pwrctrlpriv.autopm_cnt=1;
+	adapter_to_pwrctl(padapter)->autopm_cnt=1;
 #endif
-	
-	// alloc dev name after read efuse.
-	rtw_init_netdev_name(pnetdev, padapter->registrypriv.ifname);
+
+	// set mac addr
 	rtw_macaddr_cfg(padapter->eeprompriv.mac_addr);
 	rtw_init_wifidirect_addrs(padapter, padapter->eeprompriv.mac_addr, padapter->eeprompriv.mac_addr);
-	_rtw_memcpy(pnetdev->dev_addr, padapter->eeprompriv.mac_addr, ETH_ALEN);
-	DBG_871X("MAC Address from pnetdev->dev_addr= " MAC_FMT "\n", MAC_ARG(pnetdev->dev_addr));	
-
-#ifdef CONFIG_HOSTAPD_MLME
-	hostapd_mode_init(padapter);
-#endif
-
-#ifdef CONFIG_PLATFORM_RTD2880B
-	DBG_871X("wlan link up\n");
-	rtd2885_wlan_netlink_sendMsg("linkup", "8712");
-#endif
-
-	//step 6. /* Tell the network stack we exist */
-	if (register_netdev(pnetdev) != 0) {
-		RT_TRACE(_module_hci_intfs_c_,_drv_err_,("register_netdev() failed\n"));
-		goto free_hal_data;
-	}
-
-#ifdef RTK_DMP_PLATFORM
-	rtw_proc_init_one(pnetdev);
-#endif
 
 	DBG_871X("bDriverStopped:%d, bSurpriseRemoved:%d, bup:%d, hw_init_completed:%d\n"
 		, padapter->bDriverStopped
@@ -1554,6 +1705,7 @@ static void rtw_usb_if1_deinit(_adapter *if1)
 {
 	struct net_device *pnetdev = if1->pnetdev;
 	struct mlme_priv *pmlmepriv= &if1->mlmepriv;
+	struct pwrctrl_priv *pwrctl = adapter_to_pwrctl(if1);
 
 	if(check_fwstate(pmlmepriv, _FW_LINKED))
 		rtw_disassoc_cmd(if1, 0, _FALSE);
@@ -1565,18 +1717,18 @@ static void rtw_usb_if1_deinit(_adapter *if1)
 	hostapd_mode_unload(if1);
 	#endif
 #endif
-
+/*
 	if(if1->DriverState != DRIVER_DISAPPEAR) {
 		if(pnetdev) {
 			unregister_netdev(pnetdev); //will call netdev_close()
 			rtw_proc_remove_one(pnetdev);
 		}
 	}
-
+*/
 	rtw_cancel_all_timer(if1);
 
 #ifdef CONFIG_WOWLAN
-	if1->pwrctrlpriv.wowlan_mode=_FALSE;
+	pwrctl->wowlan_mode=_FALSE;
 #endif //CONFIG_WOWLAN
 
 	rtw_dev_unload(if1);
@@ -1586,12 +1738,15 @@ static void rtw_usb_if1_deinit(_adapter *if1)
 	rtw_handle_dualmac(if1, 0);
 
 #ifdef CONFIG_IOCTL_CFG80211
-	rtw_wdev_unregister(if1->rtw_wdev);
-	rtw_wdev_free(if1->rtw_wdev);
+	if(if1->rtw_wdev)
+	{
+		//rtw_wdev_unregister(if1->rtw_wdev);
+		rtw_wdev_free(if1->rtw_wdev);
+	}
 #endif
 
 #ifdef CONFIG_BT_COEXIST
-	if(1 == if1->pwrctrlpriv.autopm_cnt){
+	if(1 == pwrctl->autopm_cnt){
 		#if (LINUX_VERSION_CODE>=KERNEL_VERSION(2,6,33))
 			usb_autopm_put_interface(adapter_to_dvobj(if1)->pusbintf);	
 		#elif (LINUX_VERSION_CODE>=KERNEL_VERSION(2,6,20))		
@@ -1599,7 +1754,7 @@ static void rtw_usb_if1_deinit(_adapter *if1)
 		#else
 			usb_autosuspend_device(adapter_to_dvobj(if1)->pusbdev, 1);
 		#endif
-		if1->pwrctrlpriv.autopm_cnt --;
+		pwrctl->autopm_cnt --;
 	}
 #endif
 
@@ -1762,7 +1917,7 @@ static int rtw_drv_init(struct usb_interface *pusb_intf, const struct usb_device
 	}
 
 #ifdef CONFIG_CONCURRENT_MODE
-	if((if2 = rtw_drv_if2_init(if1, NULL, usb_set_intf_ops)) == NULL) {
+	if((if2 = rtw_drv_if2_init(if1, usb_set_intf_ops)) == NULL) {
 		goto free_if1;
 	}	
 #endif
@@ -1778,10 +1933,35 @@ static int rtw_drv_init(struct usb_interface *pusb_intf, const struct usb_device
 	}
 #endif
 
+	//dev_alloc_name && register_netdev
+	if((status = rtw_drv_register_netdev(if1)) != _SUCCESS) {
+		goto free_if2;
+	}
+
+#ifdef CONFIG_HOSTAPD_MLME
+	hostapd_mode_init(if1);
+#endif
+
+#ifdef CONFIG_PLATFORM_RTD2880B
+	DBG_871X("wlan link up\n");
+	rtd2885_wlan_netlink_sendMsg("linkup", "8712");
+#endif
+
+#ifdef RTK_DMP_PLATFORM
+	rtw_proc_init_one(if1->pnetdev);
+#endif
+
 	RT_TRACE(_module_hci_intfs_c_,_drv_err_,("-871x_drv - drv_init, success!\n"));
 
 	status = _SUCCESS;
 
+free_if2:
+	if(status != _SUCCESS && if2) {
+		#ifdef CONFIG_CONCURRENT_MODE
+		rtw_drv_if2_stop(if2);
+		rtw_drv_if2_free(if2);
+		#endif
+	}
 free_if1:
 	if (status != _SUCCESS && if1) {
 		rtw_usb_if1_deinit(if1);
@@ -1792,7 +1972,7 @@ free_dvobj:
 exit:
 	return status == _SUCCESS?0:-ENODEV;
 }
-
+extern void rtw_unregister_netdevs(struct dvobj_priv *dvobj);
 /*
  * dev_remove() - our device is being removed
 */
@@ -1808,7 +1988,9 @@ _func_enter_;
 
 	DBG_871X("+rtw_dev_remove\n");
 	RT_TRACE(_module_hci_intfs_c_,_drv_err_,("+dev_remove()\n"));
-
+	dvobj->processing_dev_remove = _TRUE;
+	rtw_unregister_netdevs(dvobj);	
+	
 	if(usb_drv->drv_registered == _TRUE)
 	{
 		//DBG_871X("r871xu_dev_remove():padapter->bSurpriseRemoved == _TRUE\n");
@@ -1819,9 +2001,12 @@ _func_enter_;
 		//DBG_871X("r871xu_dev_remove():module removed\n");
 		padapter->hw_init_completed = _FALSE;
 	}*/
-
+#ifdef CONFIG_MP_INCLUDED
+	if (padapter->registrypriv.mp_mode == 1)
+		MPT_DeInitAdapter(padapter);
+#endif
 #if defined(CONFIG_HAS_EARLYSUSPEND) || defined(CONFIG_ANDROID_POWER)
-	rtw_unregister_early_suspend(&padapter->pwrctrlpriv);
+	rtw_unregister_early_suspend(dvobj_to_pwrctl(dvobj));
 #endif
 
 	rtw_pm_set_ips(padapter, IPS_NONE);
@@ -1849,9 +2034,6 @@ _func_enter_;
 	rtw_sw_export=NULL;
 #endif
 
-	#ifdef DBG_MEM_ALLOC
-	rtw_dump_mem_stat ();
-	#endif
 _func_exit_;
 
 	return;
@@ -1885,6 +2067,23 @@ static int __init rtw_drv_entry(void)
 #endif //CONFIG_RTL8723A	
 #endif //CONFIG_PLATFORM_ARM_SUNxI
 
+#if defined  CONFIG_PLATFORM_ARM_SUN6I   
+	script_item_value_type_e type;
+
+	type = script_get_item("wifi_para", "wifi_usbc_id", &item);
+	if(SCIRPT_ITEM_VALUE_TYPE_INT != type){
+		printk("ERR: script_get_item wifi_usbc_id failed\n");
+		return -ENOMEM;
+	}
+
+	printk("sw_usb_enable_hcd: usbc_num = %d\n", item.val);
+	wifi_pm_power(1);
+	mdelay(10);
+	
+	#ifndef CONFIG_RTL8723A
+	sw_usb_enable_hcd(item.val);
+	#endif
+#endif // defined  CONFIG_PLATFORM_ARM_SUN6I  && !(defined CONFIG_RTL8723A)
 
 	RT_TRACE(_module_hci_intfs_c_,_drv_err_,("+rtw_drv_entry\n"));
 
@@ -1897,14 +2096,6 @@ static int __init rtw_drv_entry(void)
 
 	rtw_suspend_lock_init();
 
-	_rtw_mutex_init(&usb_drv->hw_init_mutex);
-#if defined(CONFIG_CONCURRENT_MODE) || defined(CONFIG_DUALMAC_CONCURRENT)
-	//init global variable
-	_rtw_mutex_init(&usb_drv->h2c_fwcmd_mutex);
-	_rtw_mutex_init(&usb_drv->setch_mutex);
-	_rtw_mutex_init(&usb_drv->setbw_mutex);
-#endif
-
 	usb_drv->drv_registered = _TRUE;
 	return usb_register(&usb_drv->usbdrv);
 }
@@ -1912,19 +2103,11 @@ static int __init rtw_drv_entry(void)
 static void __exit rtw_drv_halt(void)
 {
 	RT_TRACE(_module_hci_intfs_c_,_drv_err_,("+rtw_drv_halt\n"));
-	DBG_871X("+rtw_drv_halt\n");
-
-	rtw_suspend_lock_uninit();
+	DBG_871X("+rtw_drv_halt\n");	
 
 	usb_drv->drv_registered = _FALSE;
 	usb_deregister(&usb_drv->usbdrv);
 
-	_rtw_mutex_free(&usb_drv->hw_init_mutex);
-#if defined(CONFIG_CONCURRENT_MODE) || defined(CONFIG_DUALMAC_CONCURRENT)
-	_rtw_mutex_free(&usb_drv->h2c_fwcmd_mutex);
-	_rtw_mutex_free(&usb_drv->setch_mutex);
-	_rtw_mutex_free(&usb_drv->setbw_mutex);
-#endif
 #ifdef CONFIG_PLATFORM_ARM_SUNxI
 #ifndef CONFIG_RTL8723A
 	DBG_8192C("sw_usb_disable_hcd: usbc_num = %d\n", usb_wifi_host);
@@ -1932,7 +2115,17 @@ static void __exit rtw_drv_halt(void)
 #endif //ifndef CONFIG_RTL8723A	
 #endif	//CONFIG_PLATFORM_ARM_SUNxI
 
+#if defined  CONFIG_PLATFORM_ARM_SUN6I
+	#ifndef CONFIG_RTL8723A
+	sw_usb_disable_hcd(item.val);
+	#endif
+	wifi_pm_power(0);
+#endif	//  defined  CONFIG_PLATFORM_ARM_SUN6I  && !(defined CONFIG_RTL8723A)
+
+	rtw_suspend_lock_uninit();
 	DBG_871X("-rtw_drv_halt\n");
+
+	rtw_mstat_dump();
 }
 
 

@@ -62,14 +62,6 @@ extern char* ifname;
 
 typedef struct _driver_priv {
 	int drv_registered;
-
-	_mutex hw_init_mutex;
-#if defined(CONFIG_CONCURRENT_MODE) || defined(CONFIG_DUALMAC_CONCURRENT)
-	//global variable
-	_mutex h2c_fwcmd_mutex;
-	_mutex setch_mutex;
-	_mutex setbw_mutex;
-#endif
 } drv_priv, *pdrv_priv;
 
 unsigned int oob_irq;
@@ -196,6 +188,11 @@ _func_enter_;
 		goto exit;
 	}
 
+	_rtw_mutex_init(&dvobj->hw_init_mutex);
+	_rtw_mutex_init(&dvobj->h2c_fwcmd_mutex);
+	_rtw_mutex_init(&dvobj->setch_mutex);
+	_rtw_mutex_init(&dvobj->setbw_mutex);
+	dvobj->processing_dev_remove = _FALSE;
 	//spi init
 	/* This is the only SPI value that we need to set here, the rest
 	 * comes from the board-peripherals file */
@@ -226,12 +223,16 @@ _func_enter_;
 		DBG_871X("%s: initialize GSPI Failed!\n", __FUNCTION__);
 		goto free_dvobj;
 	}
-
+	rtw_reset_continual_io_error(dvobj);
 	status = _SUCCESS;
 
 free_dvobj:
 	if (status != _SUCCESS && dvobj) {
 		spi_set_drvdata(spi, NULL);
+		_rtw_mutex_free(&dvobj->hw_init_mutex);
+		_rtw_mutex_free(&dvobj->h2c_fwcmd_mutex);
+		_rtw_mutex_free(&dvobj->setch_mutex);
+		_rtw_mutex_free(&dvobj->setbw_mutex);
 		rtw_mfree((u8*)dvobj, sizeof(*dvobj));
 		dvobj = NULL;
 	}
@@ -251,6 +252,10 @@ _func_enter_;
 	spi_set_drvdata(spi, NULL);
 	if (dvobj) {
 		gspi_deinit(dvobj);
+		_rtw_mutex_free(&dvobj->hw_init_mutex);
+		_rtw_mutex_free(&dvobj->h2c_fwcmd_mutex);
+		_rtw_mutex_free(&dvobj->setch_mutex);
+		_rtw_mutex_free(&dvobj->setbw_mutex);
 		rtw_mfree((u8*)dvobj, sizeof(*dvobj));
 	}
 
@@ -326,7 +331,7 @@ static void gspi_intf_stop(PADAPTER padapter)
 /*
  * Do deinit job corresponding to netdev_open()
  */
-static void rtw_dev_unload(PADAPTER padapter)
+void rtw_dev_unload(PADAPTER padapter)
 {
 	struct net_device *pnetdev = (struct net_device*)padapter->pnetdev;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
@@ -349,7 +354,7 @@ static void rtw_dev_unload(PADAPTER padapter)
 #endif
 		RT_TRACE(_module_hci_intfs_c_, _drv_notice_, ("@ rtw_dev_unload: stop intf complete!\n"));
 
-		if (!padapter->pwrctrlpriv.bInternalAutoSuspend)
+		if (!adapter_to_pwrctl(padapter)->bInternalAutoSuspend)
 			rtw_stop_drv_threads(padapter);
 
 		RT_TRACE(_module_hci_intfs_c_, _drv_notice_, ("@ rtw_dev_unload: stop thread complete!\n"));
@@ -357,7 +362,7 @@ static void rtw_dev_unload(PADAPTER padapter)
 		if (padapter->bSurpriseRemoved == _FALSE)
 		{
 #ifdef CONFIG_WOWLAN
-			if (padapter->pwrctrlpriv.bSupportRemoteWakeup == _TRUE) {
+			if (adapter_to_pwrctl(padapter)->bSupportRemoteWakeup == _TRUE) {
 				DBG_871X("%s bSupportRemoteWakeup==_TRUE  do not run rtw_hal_deinit()\n",__FUNCTION__);
 			}
 			else
@@ -395,6 +400,9 @@ static PADAPTER rtw_gspi_if1_init(struct dvobj_priv *dvobj)
 
 	padapter->bDriverStopped = _TRUE;
 
+	dvobj->padapters[dvobj->iface_nums++] = padapter;
+	padapter->iface_id = IFACE_ID0;
+
 #if defined(CONFIG_CONCURRENT_MODE) || defined(CONFIG_DUALMAC_CONCURRENT)
 	//set adapter_type/iface type for primary padapter
 	padapter->isprimary = _TRUE;
@@ -404,14 +412,6 @@ static PADAPTER rtw_gspi_if1_init(struct dvobj_priv *dvobj)
 	#else
 	padapter->iface_type = IFACE_PORT1;
 	#endif
-#endif
-
-	padapter->hw_init_mutex = &drvpriv.hw_init_mutex;
-#ifdef CONFIG_CONCURRENT_MODE
-	//set global variable to primary adapter
-	padapter->ph2c_fwcmd_mutex = &drvpriv.h2c_fwcmd_mutex;
-	padapter->psetch_mutex = &drvpriv.setch_mutex;
-	padapter->psetbw_mutex = &drvpriv.setbw_mutex;
 #endif
 
 	padapter->interface_type = RTW_GSPI;
@@ -474,22 +474,11 @@ static PADAPTER rtw_gspi_if1_init(struct dvobj_priv *dvobj)
 
 
 	//3 8. get WLan MAC address
-	// alloc dev name after read efuse.
-	rtw_init_netdev_name(pnetdev, padapter->registrypriv.ifname);
-
+	// set mac addr
 	rtw_macaddr_cfg(padapter->eeprompriv.mac_addr);
 	rtw_init_wifidirect_addrs(padapter, padapter->eeprompriv.mac_addr, padapter->eeprompriv.mac_addr);
-	_rtw_memcpy(pnetdev->dev_addr, padapter->eeprompriv.mac_addr, ETH_ALEN);
 
 	rtw_hal_disable_interrupt(padapter);
-
-
-	//3 9. Tell the network stack we exist
-	if (register_netdev(pnetdev) != 0) {
-		RT_TRACE(_module_hci_intfs_c_, _drv_err_,
-			 ("rtw_drv_init: register_netdev() failed\n"));
-		goto free_hal_data;
-	}
 
 	DBG_871X("bDriverStopped:%d, bSurpriseRemoved:%d, bup:%d, hw_init_completed:%d\n"
 		,padapter->bDriverStopped
@@ -497,10 +486,6 @@ static PADAPTER rtw_gspi_if1_init(struct dvobj_priv *dvobj)
 		,padapter->bup
 		,padapter->hw_init_completed
 	);
-
-#ifdef CONFIG_HOSTAPD_MLME
-	hostapd_mode_init(padapter);
-#endif
 
 	status = _SUCCESS;
 
@@ -543,14 +528,14 @@ static void rtw_gspi_if1_deinit(PADAPTER if1)
 	hostapd_mode_unload(if1);
 #endif
 #endif
-
+/*
 	if(if1->DriverState != DRIVER_DISAPPEAR) {
 		if(pnetdev) {
 			unregister_netdev(pnetdev); //will call netdev_close()
 			rtw_proc_remove_one(pnetdev);
-				}
-			}
-
+		}
+	}
+*/
 	rtw_cancel_all_timer(if1);
 
 	rtw_dev_unload(if1);
@@ -559,8 +544,11 @@ static void rtw_gspi_if1_deinit(PADAPTER if1)
 	rtw_handle_dualmac(if1, 0);
 
 #ifdef CONFIG_IOCTL_CFG80211
-	rtw_wdev_unregister(if1->rtw_wdev);
-	rtw_wdev_free(if1->rtw_wdev);
+	if (if1->rtw_wdev)
+	{
+		//rtw_wdev_unregister(if1->rtw_wdev);
+		rtw_wdev_free(if1->rtw_wdev);
+	}
 #endif
 
 	rtw_free_drv_sw(if1);
@@ -601,6 +589,24 @@ static int /*__devinit*/  rtw_drv_probe(struct spi_device *spi)
 	}
 #endif
 
+	//dev_alloc_name && register_netdev
+	if((status = rtw_drv_register_netdev(if1)) != _SUCCESS) {
+		goto free_if2;
+	}
+
+#ifdef CONFIG_HOSTAPD_MLME
+	hostapd_mode_init(if1);
+#endif
+
+#ifdef CONFIG_PLATFORM_RTD2880B
+	DBG_871X("wlan link up\n");
+	rtd2885_wlan_netlink_sendMsg("linkup", "8712");
+#endif
+
+#ifdef RTK_DMP_PLATFORM
+	rtw_proc_init_one(if1->pnetdev);
+#endif
+
 	if (gspi_alloc_irq(dvobj) != _SUCCESS)
 		goto free_if2;
 
@@ -635,7 +641,7 @@ free_dvobj:
 exit:
 	return status == _SUCCESS?0:-ENODEV;
 }
-
+extern void rtw_unregister_netdevs(struct dvobj_priv *dvobj);
 static int /*__devexit*/  rtw_dev_remove(struct spi_device *spi)
 {
 	struct dvobj_priv *dvobj = spi_get_drvdata(spi);
@@ -645,8 +651,11 @@ _func_enter_;
 
 	RT_TRACE(_module_hci_intfs_c_, _drv_notice_, ("+rtw_dev_remove\n"));
 
+	dvobj->processing_dev_remove = _TRUE;
+	rtw_unregister_netdevs(dvobj);	
+
 #if defined(CONFIG_HAS_EARLYSUSPEND) || defined(CONFIG_ANDROID_POWER)
-	rtw_unregister_early_suspend(&padapter->pwrctrlpriv);
+	rtw_unregister_early_suspend(dvobj_to_pwrctl(dvobj));
 #endif
 
 	rtw_pm_set_ips(padapter, IPS_NONE);
@@ -677,7 +686,7 @@ static int rtw_gspi_suspend(struct spi_device *spi, pm_message_t mesg)
 {
 	struct dvobj_priv *dvobj = spi_get_drvdata(spi);
 	PADAPTER padapter = dvobj->if1;
-	struct pwrctrl_priv *pwrpriv = &padapter->pwrctrlpriv;
+	struct pwrctrl_priv *pwrpriv = dvobj_to_pwrctl(dvobj);
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct net_device *pnetdev = padapter->pnetdev;
 	int ret = 0;
@@ -711,7 +720,7 @@ static int rtw_gspi_suspend(struct spi_device *spi, pm_message_t mesg)
 		rtw_netif_stop_queue(pnetdev);
 	}
 #ifdef CONFIG_WOWLAN
-	padapter->pwrctrlpriv.bSupportRemoteWakeup=_TRUE;
+	pwrpriv->bSupportRemoteWakeup=_TRUE;
 #else
 	//s2.
 	rtw_disassoc_cmd(padapter, 0, _FALSE);
@@ -726,7 +735,7 @@ static int rtw_gspi_suspend(struct spi_device *spi, pm_message_t mesg)
 				pmlmepriv->cur_network.network.Ssid.SsidLength,
 				pmlmepriv->assoc_ssid.SsidLength);
 
-		pmlmepriv->to_roaming = 1;
+		rtw_set_roaming(padapter, 1);
 	}
 #endif
 
@@ -792,7 +801,7 @@ int rtw_resume_process(_adapter *padapter)
 
 	if (padapter) {
 		pnetdev = padapter->pnetdev;
-		pwrpriv = &padapter->pwrctrlpriv;
+		pwrpriv = adapter_to_pwrctl(padapter);
 	} else {
 		ret = -1;
 		goto exit;
@@ -852,7 +861,7 @@ static int rtw_gspi_resume(struct spi_device *spi)
 {
 	struct dvobj_priv *dvobj = spi_get_drvdata(spi);
 	PADAPTER padapter = dvobj->if1;
-	struct pwrctrl_priv *pwrpriv = &padapter->pwrctrlpriv;
+	struct pwrctrl_priv *pwrpriv = dvobj_to_pwrctl(dvobj);
 	 int ret = 0;
 
 
@@ -863,16 +872,14 @@ static int rtw_gspi_resume(struct spi_device *spi)
 	} else {
 #ifdef CONFIG_RESUME_IN_WORKQUEUE
 		rtw_resume_in_workqueue(pwrpriv);
-#elif defined(CONFIG_HAS_EARLYSUSPEND) || defined(CONFIG_ANDROID_POWER)
+#else
 		if(rtw_is_earlysuspend_registered(pwrpriv)) {
-			//jeff: bypass resume here, do in late_resume
-			pwrpriv->do_late_resume = _TRUE;
+			/* jeff: bypass resume here, do in late_resume */
+			rtw_set_do_late_resume(pwrpriv, _TRUE);
 		} else {
 			ret = rtw_resume_process(padapter);
 		}
-#else // Normal resume process
-		ret = rtw_resume_process(padapter);
-#endif //CONFIG_RESUME_IN_WORKQUEUE
+#endif /* CONFIG_RESUME_IN_WORKQUEUE */
 	}
 
 	DBG_871X("<========  %s return %d\n", __FUNCTION__, ret);
@@ -904,14 +911,6 @@ static int __init rtw_drv_entry(void)
 
 	rtw_suspend_lock_init();
 
-	_rtw_mutex_init(&drvpriv.hw_init_mutex);
-#if defined(CONFIG_CONCURRENT_MODE) || defined(CONFIG_DUALMAC_CONCURRENT)
-	//init global variable
-	_rtw_mutex_init(&drvpriv.h2c_fwcmd_mutex);
-	_rtw_mutex_init(&drvpriv.setch_mutex);
-	_rtw_mutex_init(&drvpriv.setbw_mutex);
-#endif
-
 	drvpriv.drv_registered = _TRUE;
 
 	rtw_wifi_gpio_init();
@@ -927,24 +926,20 @@ static void __exit rtw_drv_halt(void)
 {
 	RT_TRACE(_module_hci_intfs_c_, _drv_notice_, ("+rtw_drv_halt\n"));
 	DBG_8192C("RTW: rtw_drv_halt enter\n");
-
-	rtw_suspend_lock_uninit();
+	
 	drvpriv.drv_registered = _FALSE;
 
 	spi_unregister_driver(&rtw_spi_drv);
 
-	_rtw_mutex_free(&drvpriv.hw_init_mutex);
-#if defined(CONFIG_CONCURRENT_MODE) || defined(CONFIG_DUALMAC_CONCURRENT)
-	_rtw_mutex_free(&drvpriv.h2c_fwcmd_mutex);
-	_rtw_mutex_free(&drvpriv.setch_mutex);
-	_rtw_mutex_free(&drvpriv.setbw_mutex);
-#endif
 
 	rtw_wifi_gpio_wlan_ctrl(WLAN_PWDN_OFF);
 	rtw_wifi_gpio_deinit();
 
+	rtw_suspend_lock_uninit();
 	DBG_8192C("RTW: rtw_drv_halt enter\n");
 	RT_TRACE(_module_hci_intfs_c_, _drv_notice_, ("-rtw_drv_halt\n"));
+
+	rtw_mstat_dump();
 }
 module_init(rtw_drv_entry);
 module_exit(rtw_drv_halt);

@@ -115,6 +115,18 @@ typedef enum _RT_SCAN_TYPE
 	SCAN_MIX,
 }RT_SCAN_TYPE, *PRT_SCAN_TYPE;
 
+enum  _BAND
+{
+	GHZ24_50 = 0,
+	GHZ_50,
+	GHZ_24,
+};
+
+enum DriverInterface {
+	DRIVER_WEXT =  1,
+	DRIVER_CFG80211 = 2
+};
+
 enum SCAN_RESULT_TYPE
 {
 	SCAN_RESULT_P2P_ONLY = 0,		//	Will return all the P2P devices.
@@ -235,7 +247,11 @@ struct group_id_info{
 
 struct scan_limit_info{
 	u8					scan_op_ch_only;			//	When this flag is set, the driver should just scan the operation channel
+#ifndef P2P_OP_CHECK_SOCIAL_CH
 	u8					operation_ch[2];				//	Store the operation channel of invitation request frame
+#else
+	u8					operation_ch[5];				//	Store additional channel 1,6,11  for Android 4.2 IOT & Nexus 4
+#endif //P2P_OP_CHECK_SOCIAL_CH
 };
 
 #ifdef CONFIG_IOCTL_CFG80211
@@ -245,7 +261,6 @@ struct cfg80211_wifidirect_info{
 	struct ieee80211_channel	remain_on_ch_channel;
 	enum nl80211_channel_type	remain_on_ch_type;
 	u64						remain_on_ch_cookie;
-	struct net_device 			*remain_on_ch_dev;
 	bool is_ro_ch;
 };
 #endif //CONFIG_IOCTL_CFG80211
@@ -323,9 +338,13 @@ struct wifidirect_info{
 	enum	P2P_WPSINFO		ui_got_wps_info;			//	This field will store the WPS value (PIN value or PBC) that UI had got from the user.
 	u16						supported_wps_cm;			//	This field describes the WPS config method which this driver supported.
 														//	The value should be the combination of config method defined in page104 of WPS v2.0 spec.	
+	u8						external_uuid;				// UUID flag
+	u8						uuid[16];					// UUID
 	uint						channel_list_attr_len;		//	This field will contain the length of body of P2P Channel List attribute of group negotitation response frame.
 	u8						channel_list_attr[100];		//	This field will contain the body of P2P Channel List attribute of group negotitation response frame.
 														//	We will use the channel_cnt and channel_list fields when constructing the group negotitation confirm frame.
+	u8						driver_interface; // Indicate DRIVER_WEXT or DRIVER_CFG80211
+
 #ifdef CONFIG_CONCURRENT_MODE
 	u16						ext_listen_interval;	//	The interval to be available with legacy AP (ms)
 	u16						ext_listen_period;	//	The time period to be available for P2P listen state (ms)
@@ -395,6 +414,12 @@ struct mlme_priv {
 	u8	assoc_bssid[6];
 
 	struct wlan_network	cur_network;
+	struct wlan_network *cur_network_scanned;
+#ifdef CONFIG_ARP_KEEP_ALIVE
+	// for arp offload keep alive
+	u8	gw_mac_addr[6];
+	u8	gw_ip[4];
+#endif
 
 	//uint wireless_mode; no used, remove it
 
@@ -411,6 +436,10 @@ struct mlme_priv {
 	#ifdef CONFIG_SET_SCAN_DENY_TIMER
 	_timer set_scan_deny_timer;
 	ATOMIC_T set_scan_deny; //0: allowed, 1: deny
+	#endif
+
+	#ifdef CONFIG_DETECT_C2H_BY_POLLING
+	_timer event_polling_timer;
 	#endif
 
 	struct qos_priv qospriv;
@@ -433,7 +462,6 @@ struct mlme_priv {
 	RT_LINK_DETECT_T	LinkDetectInfo;
 	_timer	dynamic_chk_timer; //dynamic/periodic check timer
 
- 	u8 	key_mask; //use for ips to set wep key after ips_leave
 	u8	acm_mask; // for wmm acm mask
 	u8	ChannelPlan;
 	RT_SCAN_TYPE 	scan_mode; // active: 1, passive: 0
@@ -548,6 +576,22 @@ struct mlme_priv {
 	u8	channel_idx;
 	u8	group_cnt;	//In WiDi 3.5, they specified another scan algo. for WFD/RDS co-existed
 	u8	sa_ext[L2SDTA_SERVICE_VE_LEN];
+
+	u8	widi_enable;
+	/**
+	 * For WiDi 4; upper layer would set
+	 * p2p_primary_device_type_category_id
+	 * p2p_primary_device_type_sub_category_id
+	 * p2p_secondary_device_type_category_id
+	 * p2p_secondary_device_type_sub_category_id
+	 */
+	u16	p2p_pdt_cid;
+	u16	p2p_pdt_scid;
+	u8	num_p2p_sdt;
+	u16	p2p_sdt_cid[MAX_NUM_P2P_SDT];
+	u16	p2p_sdt_scid[MAX_NUM_P2P_SDT];
+	u8	p2p_reject_disable;	//When starting NL80211 wpa_supplicant/hostapd, it will call netdev_close
+							//such that it will cause p2p disabled. Use this flag to reject.
 #endif // CONFIG_INTEL_WIDI
 
 #ifdef CONFIG_CONCURRENT_MODE
@@ -618,7 +662,7 @@ extern void rtw_free_mlme_priv (struct mlme_priv *pmlmepriv);
 
 
 extern sint rtw_select_and_join_from_scanned_queue(struct mlme_priv *pmlmepriv);
-extern sint rtw_set_key(_adapter *adapter,struct security_priv *psecuritypriv,sint keyid, u8 set_tx);
+extern sint rtw_set_key(_adapter *adapter,struct security_priv *psecuritypriv,sint keyid, u8 set_tx, bool enqueue);
 extern sint rtw_set_auth(_adapter *adapter,struct security_priv *psecuritypriv);
 
 __inline static u8 *get_bssid(struct mlme_priv *pmlmepriv)
@@ -700,7 +744,7 @@ __inline static void up_scanned_network(struct mlme_priv *pmlmepriv)
 #ifdef CONFIG_CONCURRENT_MODE
 sint rtw_buddy_adapter_up(_adapter *padapter);
 sint check_buddy_fwstate(_adapter *padapter, sint state);
-sint check_buddy_fw_link(_adapter *padapter);
+u8 rtw_get_buddy_bBusyTraffic(_adapter *padapter);
 #endif //CONFIG_CONCURRENT_MODE
 
 __inline static void down_scanned_network(struct mlme_priv *pmlmepriv)
@@ -758,6 +802,9 @@ void rtw_set_scan_deny(_adapter *adapter, u32 ms);
 #define rtw_set_scan_deny(adapter, ms) do {} while (0)
 #endif
 
+#ifdef CONFIG_DETECT_C2H_BY_POLLING
+extern void rtw_event_polling_timer_hdl(_adapter *adapter);
+#endif
 
 extern int _rtw_init_mlme_priv(_adapter *padapter);
 
@@ -782,6 +829,7 @@ extern void _rtw_free_network_queue(_adapter* padapter, u8 isfreeall);
 
 extern sint rtw_if_up(_adapter *padapter);
 
+sint rtw_linked_check(_adapter *padapter);
 
 u8 *rtw_get_capability_from_ie(u8 *ie);
 u8 *rtw_get_timestampe_from_ie(u8 *ie);
@@ -797,14 +845,22 @@ void rtw_issue_addbareq_cmd(_adapter *padapter, struct xmit_frame *pxmitframe);
 #endif
 
 int rtw_is_same_ibss(_adapter *adapter, struct wlan_network *pnetwork);
-int is_same_network(WLAN_BSSID_EX *src, WLAN_BSSID_EX *dst);
+int is_same_network(WLAN_BSSID_EX *src, WLAN_BSSID_EX *dst, u8 feature);
 
 #ifdef CONFIG_LAYER2_ROAMING
-void rtw_roaming(_adapter *padapter, struct wlan_network *tgt_network);
-void _rtw_roaming(_adapter *padapter, struct wlan_network *tgt_network);
+void _rtw_roaming(_adapter *adapter, struct wlan_network *tgt_network);
+void rtw_roaming(_adapter *adapter, struct wlan_network *tgt_network);
+void rtw_set_roaming(_adapter *adapter, u8 to_roaming);
+u8 rtw_to_roaming(_adapter *adapter);
+#else
+#define _rtw_roaming(adapter, tgt_network) do {} while(0)
+#define rtw_roaming(adapter, tgt_network) do {} while(0)
+#define rtw_set_roaming(adapter, to_roaming) do {} while(0)
+#define rtw_to_roaming(adapter) 0
 #endif
 
-void rtw_stassoc_hw_rpt(_adapter *adapter,struct sta_info *psta);
+void rtw_sta_media_status_rpt(_adapter *adapter,struct sta_info *psta, u32 mstatus);
+
 #ifdef CONFIG_INTEL_PROXIM
 void rtw_proxim_enable(_adapter *padapter);
 void rtw_proxim_disable(_adapter *padapter);

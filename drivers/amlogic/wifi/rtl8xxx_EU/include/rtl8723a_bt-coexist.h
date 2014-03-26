@@ -1259,6 +1259,7 @@ HCI_STATUS BTHCI_HandleHCICMD(PADAPTER padapter, PPACKET_IRP_HCICMD_DATA pHciCmd
 
 #ifdef __HALBTC87231ANT_C__ // HAL/BTCoexist/HalBtc87231Ant.h
 // ===== Below this line is sync from SD7 driver HAL/BTCoexist/HalBtc87231Ant.h =====
+#define GET_BT_INFO(padapter)	(&GET_HAL_DATA(padapter)->BtInfo)
 
 #define	BTC_FOR_SCAN_START				1
 #define	BTC_FOR_SCAN_FINISH				0
@@ -1306,6 +1307,7 @@ typedef struct _BTDM_8723A_1ANT
 	u8		RSSI_BT_Last;
 
 	u8		bWiFiHalt;
+	u8		bRAChanged;
 } BTDM_8723A_1ANT, *PBTDM_8723A_1ANT;
 
 void BTDM_1AntSignalCompensation(PADAPTER padapter, u8 *rssi_wifi, u8 *rssi_bt);
@@ -1459,6 +1461,7 @@ typedef struct _BT_COEXIST_8723A
 	u64					btInqPageStartTime; // for 2Ant
 	u8					c2hBtProfile; // for 1Ant
 	u8					btRetryCnt;
+	u16					AclTp;
 	u8					btInfoExt;
 	u8					bC2hBtInfoReqSent;
 	u8					bForceFwBtInfo;
@@ -1479,7 +1482,11 @@ void BTDM_SetFwDecBtPwr(PADAPTER padapter, u8 bDecBtPwr);
 u8 BTDM_BtProfileSupport(PADAPTER padapter);
 void BTDM_LpsLeave(PADAPTER padapter);
 u8 BTDM_1Ant8723A(PADAPTER padapter);
+u8 BTDM_GetBtState8723A(PADAPTER padapter);
+u8 BTDM_IsBtInquiryPage8723A(PADAPTER padapter);
 #define BT_1Ant BTDM_1Ant8723A
+#define BT_GetBtState BTDM_GetBtState8723A
+#define BT_IsBtInquiryPage BTDM_IsBtInquiryPage8723A
 
 // ===== End of sync from SD7 driver HAL/BTCoexist/HalBtc8723.h =====
 #endif // __HALBTC8723_C__
@@ -1535,6 +1542,7 @@ void BTDM_DiminishWiFi(PADAPTER Adapter, u8 bDACOn, u8 bInterruptOn, u8 DACSwing
 
 // HEADER/TypeDef.h
 #define MAX_FW_SUPPORT_MACID_NUM			64
+#define WIFI_BUSY_TRAFFIC_TH			25
 
 // ===== Below this line is sync from SD7 driver HAL/BTCoexist/HalBtCoexist.h =====
 
@@ -1768,6 +1776,7 @@ u8 BTDM_IsActionHIDPAN(PADAPTER padapter);
 u8 BTDM_IsActionPANA2DP(PADAPTER padapter);
 u8 BTDM_IsBtDisabled(PADAPTER padapter);
 #define BT_IsBtDisabled BTDM_IsBtDisabled
+sint BTDM_CheckFWState(PADAPTER padapter, sint state);
 u32 BTDM_BtTxRxCounterH(PADAPTER padapter);
 u32 BTDM_BtTxRxCounterL(PADAPTER padapter);
 
