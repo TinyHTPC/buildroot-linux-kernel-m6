@@ -1,6 +1,6 @@
 /*
 * Customer code to add GPIO control during WLAN start/stop
-* Copyright (C) 1999-2012, Broadcom Corporation
+* Copyright (C) 1999-2013, Broadcom Corporation
 * 
 *      Unless you and Broadcom execute a separate written software license
 * agreement governing use of this software, this software is licensed to you
@@ -20,7 +20,7 @@
 * software in any way with any other Broadcom software provided under a license
 * other than the GPL, without Broadcom's express prior written consent.
 *
-* $Id: dhd_custom_gpio.c 353167 2012-08-24 22:11:30Z $
+* $Id: dhd_custom_gpio.c 353280 2012-08-26 04:33:17Z $
 */
 
 #include <typedefs.h>
@@ -143,6 +143,7 @@ dhd_customer_gpio_wlan_ctrl(int onoff)
 #if defined(CUSTOMER_HW2)
 			wifi_set_power(0, 0);
 #endif
+			mdelay(100);
 			WL_ERROR(("=========== WLAN placed in RESET ========\n"));
 		break;
 
@@ -155,6 +156,7 @@ dhd_customer_gpio_wlan_ctrl(int onoff)
 #if defined(CUSTOMER_HW2)
 			wifi_set_power(1, 0);
 #endif
+			mdelay(100);
 			WL_ERROR(("=========== WLAN going back to live  ========\n"));
 		break;
 
@@ -176,10 +178,7 @@ dhd_customer_gpio_wlan_ctrl(int onoff)
 				__FUNCTION__));
 #ifdef CUSTOMER_HW
 			bcm_wlan_power_on(1);
-			/* Lets customer power to get stable */
-			OSL_DELAY(200);
 #endif /* CUSTOMER_HW */
-
 #ifdef CUSTOMER_HW_AMLOGIC
 			extern_wifi_set_enable(0);
 			mdelay(200);
@@ -187,6 +186,8 @@ dhd_customer_gpio_wlan_ctrl(int onoff)
 			mdelay(200);
 			sdio_reinit();
 #endif /* CUSTOMER_HW_AMLOGIC */
+			/* Lets customer power to get stable */
+			mdelay(100);
 			WL_ERROR(("=========== WLAN placed in POWER ON ========\n"));
 		break;
 	}

@@ -29,12 +29,14 @@
 #include "bmi.h"
 #include "target.h"
 #include "dbglog.h"
+#include "acs.h"
+#include "htcoex.h"
 
 #define MAKE_STR(symbol) #symbol
 #define TO_STR(symbol) MAKE_STR(symbol)
 
 /* The script (used for release builds) modifies the following line. */
-#define __BUILD_VERSION_ 3.2.1.9999
+#define __BUILD_VERSION_ 3.2.1.119
 
 /* Always turn on ATH6KL_DEBUG */
 #undef CONFIG_ATH6KL_DEBUG 
@@ -72,6 +74,12 @@
 #define A_DEFAULT_LISTEN_INTERVAL         100
 #define A_MAX_WOW_LISTEN_INTERVAL         1000
 
+#define ATH6KL_DISCONNECT_TIMEOUT 	  5
+
+#define ATH6KL_SCAN_FG_MAX_PERIOD	(5)	/* in sec. */
+/* Remain-on-channel */
+#define ATH6KL_ROC_MAX_PERIOD		(5)	/* in sec. */
+
 #define SKB_CB_VIF(__skb)	(*((struct ath6kl_vif **)__skb->cb))
 /* AR6003 1.0 definitions */
 #define AR6003_REV1_VERSION                 0x300002ba
@@ -107,8 +115,11 @@
 #define AR6004_REV2_FIRMWARE_TX99_FILE           "ath6k/AR6004/hw1.1/fw.ram.tx99.bin"
 
 #define AR6004_REV2_BOARD_DATA_FILE         "ath6k/AR6004/hw1.1/bdata.bin"
+#define AR6004_REV2_TESTMODE_FIRMWARE_FILE  "ath6k/AR6004/hw1.1/utf.bin"
+#define AR6004_REV2_TESTSCRIPT_FILE         "ath6k/AR6004/hw1.1/nullTestFlow.bin"
 #define AR6004_REV2_DEFAULT_BOARD_DATA_FILE "ath6k/AR6004/hw1.1/bdata.DB132.bin"
-#define AR6004_REV2_EPPING_FIRMWARE_FILE "ath6k/AR6004/hw1.1/endpointping.bin"
+#define AR6004_REV2_EPPING_FIRMWARE_FILE    "ath6k/AR6004/hw1.1/endpointping.bin"
+#define AR6004_HW_1_1_SOFTMAC_FILE          "ath6k/AR6004/hw1.1/softmac.bin"
 
 /* AR6006 1.0 definitions */
 #define AR6006_REV1_VERSION                 0x300007a5
@@ -116,6 +127,9 @@
 #define AR6006_REV1_BOARD_DATA_FILE         "ath6k/AR6006/hw1.0/bdata.bin"
 #define AR6006_REV1_DEFAULT_BOARD_DATA_FILE "ath6k/AR6006/hw1.0/bdata.DB132.bin"
 #define AR6006_REV1_EPPING_FIRMWARE_FILE    "ath6k/AR6006/hw1.0/endpointping.bin"
+
+#define BDATA_CHECKSUM_OFFSET               4
+#define BDATA_MAC_ADDR_OFFSET               8
 
 /* Per STA data, used in AP mode */
 #define STA_PS_AWAKE		BIT(0)
@@ -134,8 +148,8 @@
 #define AGGR_WIN_IDX(x, y)          ((x) % (y))
 #define AGGR_INCR_IDX(x, y)         AGGR_WIN_IDX(((x) + 1), (y))
 #define AGGR_DCRM_IDX(x, y)         AGGR_WIN_IDX(((x) - 1), (y))
-#define ATH6KL_MAX_SEQ_NO		0xFFF
-#define ATH6KL_NEXT_SEQ_NO(x)		(((x) + 1) & ATH6KL_MAX_SEQ_NO)
+#define ATH6KL_MAX_SEQ_NO           0xFFF
+#define ATH6KL_NEXT_SEQ_NO(x)       (((x) + 1) & ATH6KL_MAX_SEQ_NO)
 
 #define NUM_OF_TIDS         8
 #define AGGR_SZ_DEFAULT     8
@@ -159,7 +173,7 @@
 #define AGGR_TX_MAX_AGGR_SIZE   1600	/* Sync to max. PDU size of host size. */
 #define AGGR_TX_MAX_PDU_SIZE    120
 #define AGGR_TX_MIN_PDU_SIZE    64		/* 802.3(14) + LLC(8) + IP/TCP(20) = 42 */
-#define AGGR_TX_MAX_NUM			6
+#define AGGR_TX_MAX_NUM         6
 #define AGGR_TX_TIMEOUT         4
 
 #define AGGR_GET_TXTID(_p, _x)           (&(_p->tx_tid[(_x)]))
@@ -210,8 +224,6 @@ struct skb_hold_q {
 
 struct rxtid {
 	bool aggr;
-	bool progress;
-	bool timer_mon;
 	u16 win_sz;
 	u16 seq_next;
 	u32 hold_q_sz;
@@ -219,6 +231,13 @@ struct rxtid {
 	struct sk_buff_head q;
 	spinlock_t lock;
     u16 timerwait_seq_num; /* current wait seq_no next */
+	bool sync_next_seq;
+	struct timer_list tid_timer;
+	u8 tid_timer_scheduled;
+	u8	tid;
+	u16	issue_timer_seq;
+	struct aggr_conn_info *aggr_conn;
+	u16 seq_no_prev ;
 };
 
 struct rxtid_stats {
@@ -250,7 +269,7 @@ struct txtid {
 	u8 amsdu_cnt;				/* current aggr count */
 	u8 *amsdu_start;			/* start pointer of amsdu frame */
 	u16 amsdu_len;				/* current aggr length */
-	u16 amsdu_lastpdu_len;		/* last PDU length */
+	u16 amsdu_lastpdu_len;			/* last PDU length */
 	spinlock_t lock;
 	struct ath6kl_vif *vif;
 
@@ -275,13 +294,11 @@ struct aggr_info {
 
 struct aggr_conn_info {
 	u8 aggr_sz;
-	u8 timer_scheduled;
-	struct timer_list timer;
 	struct aggr_info *aggr_cntxt;
 	struct net_device *dev;
 	struct rxtid rx_tid[NUM_OF_TIDS];
 	struct rxtid_stats stat[NUM_OF_TIDS];
-
+	u32 tid_timeout_setting[NUM_OF_TIDS];
 	/* TX A-MSDU */
 	struct txtid tx_tid[NUM_OF_TIDS];
 };
@@ -333,6 +350,25 @@ struct mgmt_buff_head {
 	u32 len;
 };
 
+#define ATH_RSSI_LPF_LEN                     10
+#define ATH_RSSI_DUMMY_MARKER                0x127
+#define RSSI_LPF_THRESHOLD                   -20
+#define ATH_RSSI_EP_MULTIPLIER               (1<<7)  /* pow2 to optimize out * and / */
+#define HAL_RSSI_EP_MULTIPLIER  (1<<7)  /* pow2 to optimize out * and / */
+#define ATH_EP_RND(x, mul)                   ((((x)%(mul)) >= ((mul)/2)) ? ((x) + ((mul) - 1)) / (mul) : (x)/(mul))
+
+#define ATH_EP_MUL(x, mul)                   ((x) * (mul))
+
+#define ATH_RSSI_IN(x)                       (ATH_EP_MUL((x), ATH_RSSI_EP_MULTIPLIER))    
+
+#define ATH_LPF_RSSI(x, y, len) \
+    ((x != ATH_RSSI_DUMMY_MARKER) ? (((x) * ((len) - 1) + (y)) / (len)) : (y))
+
+#define ATH_RSSI_LPF(x, y) do {                     \
+    if ((y) >= RSSI_LPF_THRESHOLD)                         \
+        x = ATH_LPF_RSSI((x), ATH_RSSI_IN((y)), ATH_RSSI_LPF_LEN);  \
+} while (0)
+
 struct ath6kl_sta {
 	u16 sta_flags;
 	u8 mac[ETH_ALEN];
@@ -348,6 +384,8 @@ struct ath6kl_sta {
 	struct ath6kl_vif *vif;
 	struct timer_list psq_age_timer;
 	struct aggr_conn_info *aggr_conn_cntxt;	
+	
+	int avg_data_rssi;
 };
 
 struct ath6kl_version {
@@ -487,24 +525,43 @@ struct ath6kl_req_key {
 #define WMI_READY               1  /* ar */
 #define WMI_CTRL_EP_FULL        2  /* ar */
 #define DESTROY_IN_PROGRESS     3  /* ar */
-#define WLAN_ENABLED            4  /* ar */
+#define WLAN_ENABLED            4  /* vif */
 #define WLAN_WOW_ENABLE         5  /* ar */
 /* flag info for vif */
-#define CONNECTED               10 /* vif */
-#define CONNECT_PEND            11 /* vif */
-#define STATS_UPDATE_PEND       12 /* vif */
-#define WMM_ENABLED             13 /* vif */
-#define NETQ_STOPPED            14 /* vif */
-#define DTIM_EXPIRED            15 /* vif */
-#define NETDEV_REGISTERED       16 /* vif */
-#define SKIP_SCAN               17 /* vif */
-#define AMSDU_ENABLED           18 /* vif */
+#define CONNECTED                 10 /* vif */
+#define CONNECT_PEND              11 /* vif */
+#define STATS_UPDATE_PEND         12 /* vif */
+#define WMM_ENABLED               13 /* vif */
+#define NETQ_STOPPED              14 /* vif */
+#define DTIM_EXPIRED              15 /* vif */
+#define NETDEV_REGISTERED         16 /* vif */
+#define SKIP_SCAN                 17 /* vif */
+#define AMSDU_ENABLED             18 /* vif */
+#define CLEAR_BSSFILTER_ON_BEACON 19 /* vif */
+#define ROC_ONGOING               20 /* vif */
+#define ROC_CANCEL_PEND           21 /* vif */
+#define DISCONNECT_PEND			  22 /* vif */
+#define ROC_PEND				  23
 
-#define SONY_BASE         		19 /* vif */
-#define SONY_WMI_UPDATE         SONY_BASE /* vif */
-#define SONY_WMI_SCAN           (SONY_BASE+1) /* vif */
-#define SONY_WMI_TESTMODE_RX    (SONY_BASE+2) /* vif */
-#define SONY_WMI_TESTMODE_GET   (SONY_BASE+3) /* vif */
+#define CE_BASE                 ROC_PEND+1 /* vif */
+#define CE_WMI_UPDATE           CE_BASE    /* vif */
+#define CE_WMI_SCAN            (CE_BASE+1) /* vif */
+#define CE_WMI_TESTMODE_RX     (CE_BASE+2) /* vif */
+#define CE_WMI_TESTMODE_GET    (CE_BASE+3) /* vif */
+
+/* IOCTL structure to configure the wireless interface. */ 
+typedef struct athr_cmd {
+	int     cmd;        /* CMD Type */
+	int     data[4];    /* CMD Data */       
+} athr_cmd_t;
+
+#define ATHR_WLAN_SCAN_BAND             1
+#define ATHR_WLAN_FIND_BEST_CHANNEL     2
+
+#define ATHR_CMD_SCANBAND_ALL           0   /* Scan all supported channel */
+#define ATHR_CMD_SCANBAND_2G            1   /* Scan 2GHz channel only */
+#define ATHR_CMD_SCANBAND_5G            2   /* Scan 5GHz channel only */
+#define ATHR_CMD_SCANBAND_CHAN_ONLY     3   /* Scan single channel only */
 
 
 enum hif_type {
@@ -512,9 +569,18 @@ enum hif_type {
 	HIF_TYPE_USB
 };
 
+#define AP_ACL_SIZE 10
+#define ATH_MAC_LEN 6
+struct WMI_AP_ACL{
+    u16    index;
+    u8     acl_mac[AP_ACL_SIZE][ATH_MAC_LEN];
+    u8     wildcard[AP_ACL_SIZE];
+    u8     policy;
+};
+
 struct ath6kl_vif {
 	struct net_device *net_dev;
-			int ssid_len;
+	int ssid_len;
 	u8 ssid[IEEE80211_MAX_SSID_LEN];
 	u8 next_mode;
 	u8 nw_type;
@@ -534,7 +600,6 @@ struct ath6kl_vif {
 	u16 listen_intvl_t;
 	u8 lrssi_roam_threshold;
 
-	
 	u8 tx_pwr;
 	struct ath6kl_node_mapping node_map[MAX_NODE_NUM];
 	u8 ibss_ps_enable;
@@ -544,6 +609,8 @@ struct ath6kl_vif {
 	u8 usr_bss_filter;
 	struct cfg80211_scan_request *scan_req;
 	struct timer_list scan_timer;
+	u32 scan_timeout;
+
 	struct ath6kl_key keys[WMI_MAX_KEY_INDEX + 1];
 	enum sme_state sme_state;
 	struct wmi_scan_params_cmd sc_params;
@@ -553,7 +620,7 @@ struct ath6kl_vif {
 	struct aggr_info *aggr_cntxt;
 	struct wmi_ap_mode_stat ap_stats;
 	u8 ap_country_code[3];
-	
+
 	struct timer_list disconnect_timer;
 
 	struct ath6kl_sta sta_list[AP_MAX_NUM_STA];
@@ -562,7 +629,13 @@ struct ath6kl_vif {
 	struct sk_buff_head mcastpsq;
 	spinlock_t mcastpsq_lock;
 	int reconnect_flag;
+	/* Lock to protect vif specific net_stats and flags */
+	spinlock_t if_lock;
+	
+	u32 last_roc_id;
+	u32 last_cancel_roc_id;
 	struct net_device_stats net_stats;
+	struct target_stats target_stats;
 	struct wireless_dev *wdev;
 	u8 if_type;
 	u8 if_sub_type;
@@ -570,6 +643,7 @@ struct ath6kl_vif {
 	struct ath6kl *ar;
 
 	bool probe_req_report;
+	bool probe_resp_report;
 	bool p2p;
 	unsigned long flag;
 	u16 assoc_bss_beacon_int;
@@ -577,6 +651,15 @@ struct ath6kl_vif {
 	wait_queue_head_t event_wq;
 	bool wmm_enabled;
 	bool next_mode_p2p;
+
+	u8  scan_band;
+	u32 scan_chan;
+	struct WMI_AP_ACL	acl_db;
+	struct acs *acs_ctx;
+	struct htcoex *htcoex_ctx;
+	int best_chan[4];
+
+	struct mi_node *miroot;
 };
 
 #define NUM_DEV 2
@@ -615,7 +698,10 @@ struct ath6kl {
 	u8 rx_meta_ver;
 	enum wlan_low_pwr_state wlan_pwr_state;
 #define AR_MCAST_FILTER_MAC_ADDR_SIZE  4
-
+	struct {
+		void *rx_report;
+		size_t rx_report_len;
+	} tm;
 	u16 conf_flags;
 	wait_queue_head_t event_wq;
 	struct ath6kl_mbox_info mbox_info;
@@ -636,6 +722,10 @@ struct ath6kl {
 	u8 *fw_patch;
 	size_t fw_patch_len;
 
+	const char *hw_fw_softmac;
+	u8 *fw_softmac;
+	size_t fw_softmac_len;
+
 	struct workqueue_struct *ath6kl_wq;
 
 	struct dentry *debugfs_phy;
@@ -647,6 +737,7 @@ struct ath6kl {
 	bool p2p;
 
 	bool tx99;
+	bool suspend;
 
 #ifdef CONFIG_ATH6KL_DEBUG
 	struct {
@@ -657,9 +748,9 @@ struct ath6kl {
 		unsigned int dbgfs_diag_reg;
 		u32 diag_reg_addr_wr;
 		u32 diag_reg_val_wr;
-        u64 set_tx_series;
-        u8 min_rx_bundle_frame;
-        u8 min_rx_bundle_timeout;
+		u64 set_tx_series;
+		u8 min_rx_bundle_frame;
+		u8 min_rx_bundle_timeout;
 		u8 mimo_ps_enable;
 
 		struct green_tx_param {
@@ -682,6 +773,7 @@ struct ath6kl {
 			u8 lpl_policy;
 			u8 no_blocker_detect;
 			u8 no_rfb_detect;
+			u8    rsvd;
 		} lpl_force_enable_params;
 
 		struct ht_cap_param {
@@ -689,12 +781,16 @@ struct ath6kl {
 			u8 band;
 			u8 chan_width_40M_supported;
 			u8 short_GI;
+			u8 intolerance_40MHz;
 		} ht_cap_param[IEEE80211_NUM_BANDS];
 		struct channel_list_param {
 			u8 num_ch;
 			u16 ch_list[WMI_MAX_CHANNELS * 2];
 		} channel_list_param;
-
+		struct wmix_dummy_event_param {
+			u16 enable;
+			u16 interval;
+		} wmix_dummy_event_param;
 	} debug;
 	struct work_struct firmware_crash_dump_deferred_work;
 #endif /* CONFIG_ATH6KL_DEBUG */
@@ -801,9 +897,9 @@ enum htc_endpoint_id ath6kl_ac2_endpoint_id(void *devt, u8 ac);
 void ath6kl_pspoll_event(struct ath6kl_vif *vif, u8 aid);
 
 void ath6kl_dtimexpiry_event(struct ath6kl_vif *vif);
-void ath6kl_disconnect(struct ath6kl_vif *vif);
+int ath6kl_disconnect(struct ath6kl_vif *vif);
 void ath6kl_deep_sleep_enable(struct ath6kl_vif *vif);
-void aggr_recv_delba_req_evt(struct ath6kl_vif *vif, u8 tid);
+void aggr_recv_delba_req_evt(struct ath6kl_vif *vif, u8 tid,u8 init);
 void aggr_recv_addba_req_evt(struct ath6kl_vif *vif, u8 tid, u16 seq_no,
 			     u8 win_sz);
 void aggr_recv_addba_resp_evt(struct ath6kl_vif *vif, u8 tid, u16 amsdu_sz, u8 status);

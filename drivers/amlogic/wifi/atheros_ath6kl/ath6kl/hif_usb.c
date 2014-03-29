@@ -14,12 +14,28 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <linux/reboot.h>
+#include <linux/module.h>
 #include "hif_usb.h"
 #include "hif-ops.h"
 #include "debug.h"
 #include "cfg80211.h"
+#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,28))
+#include <asm/unaligned.h>
+#endif
+
 
 /* function declarations */
+#ifdef CONFIG_PM
+static int ath6kl_usb_pm_suspend(struct usb_interface *interface,
+			      pm_message_t message);
+static int ath6kl_usb_pm_resume(struct usb_interface *interface);
+static int ath6kl_usb_pm_reset_resume(struct usb_interface *intf);
+#else
+#define ath6kl_usb_pm_suspend NULL
+#define ath6kl_usb_pm_resume NULL
+#define ath6kl_usb_pm_reset_resume NULL
+#endif
+
 static void hif_usb_recv_complete(struct urb *urb);
 static void hif_usb_recv_bundle_complete(struct urb *urb);
 extern unsigned int htc_bundle_recv;
@@ -424,10 +440,7 @@ static void hif_usb_post_recv_transfers(struct hif_usb_pipe *recv_pipe,
 		if (urb_context->buf == NULL) {
 			goto err_cleanup_urb;
 		}
-		
-		//data=(char *)kmalloc(urb_context->buf->len,GFP_ATOMIC);
-	    //memset(data,0,urb_context->buf->len);
-	    //memcpy(data,urb_context->buf->data,urb_context->buf->len);
+
 		data = urb_context->buf->data;
 		len = urb_context->buf->len;
 
@@ -624,25 +637,6 @@ static void hif_usb_recv_complete(struct urb *urb)
 		goto cleanup_recv_urb;
 
 	buf = urb_context->buf;
-	
-	/*mcli if(buf->data[18]==0xd0 && buf->data[19]==0)
-	{
-			//printk(KERN_ERR "mcli: Receive P2P device connect request!!!\n");
-		printk(KERN_ERR "buf->data[18-81]:\n");
-		printk(KERN_ERR "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-				buf->data[18],buf->data[19],buf->data[20],buf->data[21],buf->data[22],buf->data[23],buf->data[24],buf->data[25],
-				buf->data[26],buf->data[27],buf->data[28],buf->data[29],buf->data[30],buf->data[31],buf->data[32],buf->data[33]);
-		printk(KERN_ERR "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-				buf->data[34],buf->data[35],buf->data[36],buf->data[37],buf->data[38],buf->data[39],buf->data[40],buf->data[41],
-				buf->data[42],buf->data[43],buf->data[44],buf->data[45],buf->data[46],buf->data[47],buf->data[48],buf->data[49]);
-		printk(KERN_ERR "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-				buf->data[50],buf->data[51],buf->data[52],buf->data[53],buf->data[54],buf->data[55],buf->data[56],buf->data[57],
-				buf->data[58],buf->data[59],buf->data[60],buf->data[61],buf->data[62],buf->data[63],buf->data[64],buf->data[65]);
-		printk(KERN_ERR "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-				buf->data[66],buf->data[67],buf->data[68],buf->data[69],buf->data[70],buf->data[71],buf->data[72],buf->data[73],
-				buf->data[74],buf->data[75],buf->data[76],buf->data[77],buf->data[78],buf->data[79],buf->data[80],buf->data[81]);
-	}*/		  	
-	
 	/* we are going to pass it up */
 	urb_context->buf = NULL;
 	skb_put(buf, urb->actual_length);
@@ -868,6 +862,10 @@ static void hif_usb_io_comp_work(struct work_struct *work)
 
 	pipe_st->num_io_comp++;
 	device = pipe->ar_usb;
+
+	if (test_and_set_bit(WORKER_LOCK_BIT, &pipe->worker_lock)) {
+		return;
+	}
 	while ((buf = skb_dequeue(&pipe->io_comp_queue))) {
 		if (pipe->flags & HIF_USB_PIPE_FLAG_TX) {
 			ath6kl_dbg(ATH6KL_DBG_USB_BULK,
@@ -877,6 +875,7 @@ static void hif_usb_io_comp_work(struct work_struct *work)
 					htc_target, buf);
 
 			if (tx++ > device->max_sche_tx) {
+				clear_bit(WORKER_LOCK_BIT, &pipe->worker_lock);
 				pipe_st->num_tx_resche++;
 				goto reschedule;
 			}
@@ -889,11 +888,13 @@ static void hif_usb_io_comp_work(struct work_struct *work)
 					pipe->logical_pipe_num);
 
 			if (rx++ > device->max_sche_rx) { 
+				clear_bit(WORKER_LOCK_BIT, &pipe->worker_lock);
 				pipe_st->num_rx_resche++;
 				goto reschedule;
 			}
 		}
 	}
+	clear_bit(WORKER_LOCK_BIT, &pipe->worker_lock);
 
 	if (tx > pipe_st->num_max_tx)
 		pipe_st->num_max_tx = tx;
@@ -943,7 +944,9 @@ static int ath6kl_usb_reboot(struct notifier_block *nb, unsigned long val,
 
 	ar = (struct ath6kl *) device->claimed_context;
 	if (ar != NULL) {
-		ath6kl_reset_device(ar, ar->target_type, true, true);
+		if(ar->suspend == false) {
+			ath6kl_reset_device(ar, ar->target_type, true, true);
+		}
 	}
 	return NOTIFY_DONE;
 }
@@ -974,6 +977,7 @@ static struct ath6kl_usb *hif_usb_create(struct usb_interface *interface)
 		INIT_WORK(&pipe->io_complete_work,
 			  hif_usb_io_comp_work);
 		skb_queue_head_init(&pipe->io_comp_queue);
+		pipe->worker_lock = 0;
 	}
 
 	device->diag_cmd_buffer =
@@ -1005,6 +1009,7 @@ fail_hif_usb_create:
 	return device;
 }
 
+#ifdef CONFIG_PM
 static void hif_usb_suspend(struct usb_interface *interface)
 {
 	struct ath6kl_usb *device;
@@ -1040,6 +1045,7 @@ static void hif_usb_resume(struct usb_interface *interface)
                         0 /* not allocating urb-buffer again */); 
     }
 }
+#endif
 
 static void hif_usb_device_detached(struct usb_interface *interface,
 				    u8 surprise_removed)
@@ -1279,6 +1285,13 @@ int hif_send(struct ath6kl *ar, u8 PipeID, struct sk_buff *hdr_buf,
 			urb_context);
 		goto fail_hif_send;
 	}
+//#ifdef CE_CUSTOM_0 //+FLUG20120730
+#if 1 //-FLUG20120730
+	if ((len % 512) ==0 )
+	{
+		len++;
+	}
+#endif /* CE_CUSTOM_0 */
 	
 	usb_fill_bulk_urb(urb,
 			  device->udev,
@@ -1397,7 +1410,7 @@ static int hif_usb_submit_ctrl_out(struct ath6kl_usb *device,
 				   u8 req, u16 value, u16 index, void *data,
 				   u32 size)
 {
-	u32 result = 0;
+	int result = 0;
 	int ret = 0;
 	u8 *buf = NULL;
 
@@ -1413,7 +1426,7 @@ static int hif_usb_submit_ctrl_out(struct ath6kl_usb *device,
 				 req,
 				 USB_DIR_OUT | USB_TYPE_VENDOR |
 				 USB_RECIP_DEVICE, value, index, buf,
-				 size, 1000);
+				 size, 3000/*1000*/);
 
 	if (result < 0) {
 		ath6kl_dbg(ATH6KL_DBG_USB, "%s failed,result = %d\n",
@@ -1430,7 +1443,7 @@ static int hif_usb_submit_ctrl_in(struct ath6kl_usb *device,
 				  u8 req, u16 value, u16 index, void *data,
 				  u32 size)
 {
-	u32 result = 0;
+	int result = 0;
 	int ret = 0;
 	u8 *buf = NULL;
 
@@ -1444,7 +1457,7 @@ static int hif_usb_submit_ctrl_in(struct ath6kl_usb *device,
 				 req,
 				 USB_DIR_IN | USB_TYPE_VENDOR |
 				 USB_RECIP_DEVICE, value, index, buf,
-				 size, 2 * HZ);
+				 size, 30*1000);//unit : ms, 30s
 
 	if (result < 0) {
 		ath6kl_dbg(ATH6KL_DBG_USB, "%s failed,result = %d\n",
@@ -1510,7 +1523,7 @@ static int ath6kl_usb_diag_read32(struct ath6kl *ar, u32 address, u32 *value)
 	if (status == 0) {
 		struct usb_ctrl_diag_resp_read *pResp =
 		    (struct usb_ctrl_diag_resp_read *)device->diag_resp_buffer;
-		*value = pResp->value;
+		*value = le32_to_cpu(pResp->value);
 	}
 
 	return status;
@@ -1631,6 +1644,24 @@ static int ath6kl_usb_max_sche(struct ath6kl *ar, u32 max_sche_tx, u32 max_sche_
 	return 0;
 }
 
+#ifdef CONFIG_PM
+int ath6kl_usb_suspend(struct ath6kl *ar)
+{
+	pm_message_t message;
+	struct ath6kl_usb *device = ath6kl_usb_priv(ar);
+	struct usb_interface *interface = device->interface;	
+	return ath6kl_usb_pm_suspend(interface,message);
+}
+
+int ath6kl_usb_resume(struct ath6kl *ar)
+{
+	struct ath6kl_usb *device = ath6kl_usb_priv(ar);
+	struct usb_interface *interface = device->interface;
+
+	return ath6kl_usb_pm_resume(interface);
+}
+#endif
+
 static const struct ath6kl_hif_ops ath6kl_usb_ops = {
 	.diag_read32 = ath6kl_usb_diag_read32,
 	.diag_write32 = ath6kl_usb_diag_write32,
@@ -1638,12 +1669,17 @@ static const struct ath6kl_hif_ops ath6kl_usb_ops = {
 	.bmi_send_buf = ath6kl_usb_bmi_send_buf,
 	.get_stat = ath6kl_usb_pipe_stat,
 	.set_max_sche = ath6kl_usb_max_sche,
+#if 0 //def CONFIG_PM
+	.suspend = ath6kl_usb_suspend,
+	.resume = ath6kl_usb_resume,
+#endif
 };
 
 static hif_product_info_t g_product_info;
 void ath6kl_usb_get_usbinfo(void *product_info)
 {
     memcpy(product_info,&g_product_info,sizeof(hif_product_info_t));
+    return;
 }
 
 /* ath6kl usb driver registered functions */
@@ -1658,8 +1694,8 @@ static int ath6kl_usb_probe(struct usb_interface *interface,
 
 	usb_get_dev(dev);
 
-	g_product_info.idVendor = vendor_id = dev->descriptor.idVendor;
-	g_product_info.idProduct = product_id = dev->descriptor.idProduct;   
+	g_product_info.idVendor = vendor_id = le16_to_cpu(dev->descriptor.idVendor);
+	g_product_info.idProduct = product_id = le16_to_cpu(dev->descriptor.idProduct);   
     if(dev->product)
         memcpy(g_product_info.product,dev->product,sizeof(g_product_info.product)); 
     if(dev->manufacturer)
@@ -1691,7 +1727,7 @@ static int ath6kl_usb_probe(struct usb_interface *interface,
 	if (!ar) {
 		ath6kl_err("Failed to alloc ath6kl core\n");
 		result = -ENOMEM;
-		goto err_ath6kl_core;
+		goto err_usb_device;
 	}
 
 	ar->hif_priv = ar_usb;
@@ -1729,19 +1765,19 @@ static void ath6kl_usb_remove(struct usb_interface *interface)
 }
 
 #ifdef CONFIG_PM
-static int ath6kl_usb_suspend(struct usb_interface *intf, pm_message_t message)
+static int ath6kl_usb_pm_suspend(struct usb_interface *intf, pm_message_t message)
 {
 	hif_usb_suspend(intf);
 	return 0;
 }
 
-static int ath6kl_usb_resume(struct usb_interface *intf)
+static int ath6kl_usb_pm_resume(struct usb_interface *intf)
 {
 	hif_usb_resume(intf);
 	return 0;
 }
 
-static int ath6kl_usb_reset_resume(struct usb_interface *intf)
+static int ath6kl_usb_pm_reset_resume(struct usb_interface *intf)
 {
 	if (usb_get_intfdata(intf))
 		ath6kl_usb_remove(intf);
@@ -1755,6 +1791,12 @@ static struct usb_device_id ath6kl_usb_ids[] = {
 	{USB_DEVICE(VENDOR_ATHR, 0x1021)},
 	{USB_DEVICE(VENDOR_ATHR, 0x9372)},
 	{USB_DEVICE(VENDOR_PANA, 0x3908)},
+#if defined(CE_CUSTOM_0)
+	{USB_DEVICE(0x04da, 0x3908)},
+	{USB_DEVICE(0x1435, 0x1220)},
+#elif defined(CE_CUSTOM_1)
+	{USB_DEVICE(0x0930, 0x0A09)},
+#endif /* CE_CUSTOM_0 */
 	{ /* Terminating entry */ },
 };
 
@@ -1763,10 +1805,10 @@ MODULE_DEVICE_TABLE(usb, ath6kl_usb_ids);
 static struct usb_driver ath6kl_usb_driver = {
 	.name = "ath6kl_usb",
 	.probe = ath6kl_usb_probe,
-#ifdef CONFIG_PM
-	.suspend = ath6kl_usb_suspend,
-	.resume = ath6kl_usb_resume,
-	.reset_resume = ath6kl_usb_reset_resume,
+#if 0 //def CONFIG_PM
+	.suspend = ath6kl_usb_pm_suspend,
+	.resume = ath6kl_usb_pm_resume,
+	.reset_resume = ath6kl_usb_pm_reset_resume,
 #endif
 	.disconnect = ath6kl_usb_remove,
 	.id_table = ath6kl_usb_ids,
@@ -1803,3 +1845,4 @@ MODULE_FIRMWARE(AR6004_REV2_DEFAULT_BOARD_DATA_FILE);
 MODULE_FIRMWARE(AR6006_REV1_FIRMWARE_FILE);
 MODULE_FIRMWARE(AR6006_REV1_BOARD_DATA_FILE);
 MODULE_FIRMWARE(AR6006_REV1_DEFAULT_BOARD_DATA_FILE);
+MODULE_FIRMWARE(AR6004_HW_1_1_SOFTMAC_FILE);

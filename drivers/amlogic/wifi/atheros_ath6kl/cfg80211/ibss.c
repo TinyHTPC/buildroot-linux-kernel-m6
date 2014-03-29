@@ -10,6 +10,9 @@
 #include <net/cfg80211.h>
 #include "wext-compat.h"
 #include "nl80211.h"
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0)) || defined(CE_CUSTOM_2) 
+#include <linux/module.h>
+#endif
 
 
 void __cfg80211_ibss_joined(struct net_device *dev, const u8 *bssid)

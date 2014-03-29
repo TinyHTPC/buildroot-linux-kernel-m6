@@ -1,14 +1,14 @@
 config SDIO_DHD_CDC_WIFI_AP6xxx_MODULE
-	tristate "AP6xxx(Broadcom 4329/4330) wireless cards support"
+	tristate "AP6xxx(Broadcom 4339/4330) wireless cards support"
 	depends on AM_WIFI_SD_MMC || SD_MMC
 	---help---
 	  This module adds support for wireless adapters based on
-	  Broadcom 4329/4330 chipset.
+	  Broadcom 4339/4330 chipset.
 
-config BCMDHD_OOB
+config BCMDHD_OOB_AP6xxx
 	depends on SDIO_DHD_CDC_WIFI_AP6xxx_MODULE
 	bool "Out-of-Band Interrupt"
-	default y
+	default n
 	---help---
 	  Out-of-Band interrupt through WL_HOST_WAKE.
 

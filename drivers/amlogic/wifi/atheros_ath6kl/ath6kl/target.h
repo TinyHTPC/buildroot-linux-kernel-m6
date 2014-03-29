@@ -331,6 +331,13 @@ struct host_interest {
 #define HI_OPTION_FW_SUBMODE_P2PCLIENT 0x2
 #define HI_OPTION_FW_SUBMODE_P2PGO     0x3
 
+/* hi_option_flag2 options */
+#define HI_OPTION_DISABLE_MAC_OTP   0x40  /* Disable MAC address overwrite via OTP Feature */
+#define HI_OPTION_TXMASK_CHAIN_0   0x200  /* Enable ch0 txmask */
+#define HI_OPTION_TXMASK_CHAIN_1   0x400  /* Enable ch1 txmask */
+#define HI_OPTION_RXMASK_CHAIN_0   0x800  /* Enable ch0 rxmask */
+#define HI_OPTION_RXMASK_CHAIN_1   0x1000 /* Enable ch1 rxmask */
+
 #define HI_OPTION_NUM_DEV_SHIFT   0x9
 
 #define HI_OPTION_FW_BRIDGE_SHIFT 0x04

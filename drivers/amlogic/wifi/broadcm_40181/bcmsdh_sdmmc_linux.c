@@ -39,6 +39,10 @@
 #include <linux/mmc/card.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/mmc/sdio_ids.h>
+#ifdef CONFIG_BCM40181_POWER_ALWAYS_ON
+#include <linux/wakelock.h>
+#include <mach/am_regs.h>
+#endif
 
 #if !defined(SDIO_VENDOR_ID_BROADCOM)
 #define SDIO_VENDOR_ID_BROADCOM		0x02d0
@@ -85,6 +89,10 @@ extern void sdioh_sdmmc_devintr_on(sdioh_info_t *sd);
 extern int dhd_os_check_wakelock(void *dhdp);
 extern int dhd_os_check_if_up(void *dhdp);
 extern void *bcmsdh_get_drvdata(void);
+#ifdef CONFIG_BCM40181_POWER_ALWAYS_ON
+extern int dhd_os_wake_lock_timeout(dhd_pub_t *pub);
+extern int dhd_os_wake_lock_ctrl_timeout_enable(dhd_pub_t *pub, int val);
+#endif
 
 int sdio_function_init(void);
 void sdio_function_cleanup(void);
@@ -102,6 +110,9 @@ PBCMSDH_SDMMC_INSTANCE gInstance;
 
 /* Maximum number of bcmsdh_sdmmc devices supported by driver */
 #define BCMSDH_SDMMC_MAX_DEVICES 1
+#ifdef CONFIG_BCM40181_POWER_ALWAYS_ON
+#define WIFI_WAKE_FLAG 0x12344330
+#endif
 
 extern int bcmsdh_probe(struct device *dev);
 extern int bcmsdh_remove(struct device *dev);
@@ -267,6 +278,7 @@ static int bcmsdh_sdmmc_suspend(struct device *pdev)
 		return 0;
 
 	sd_trace_hw4(("%s Enter\n", __FUNCTION__));
+    printk("%s Enter\n", __FUNCTION__);
 
 	if (dhd_os_check_wakelock(bcmsdh_get_drvdata()))
 		return -EBUSY;
@@ -294,12 +306,24 @@ static int bcmsdh_sdmmc_resume(struct device *pdev)
 	struct sdio_func *func = dev_to_sdio_func(pdev);
 #endif /* defined(OOB_INTR_ONLY) */
 	sd_trace_hw4(("%s Enter\n", __FUNCTION__));
+    printk("%s Enter\n", __FUNCTION__);
 
 	dhd_mmc_suspend = FALSE;
 #ifdef CONFIG_BCM40181_POWER_ALWAYS_ON
 #if defined(OOB_INTR_ONLY)
-	if ((func->num == 2) && dhd_os_check_if_up(bcmsdh_get_drvdata()))
+	if ((func->num == 2) && dhd_os_check_if_up(bcmsdh_get_drvdata())) {
 		bcmsdh_oob_intr_set(1);
+
+        if (READ_AOBUS_REG(AO_RTI_STATUS_REG2) == WIFI_WAKE_FLAG) {
+            dhd_pub_t *pub = (dhd_pub_t *)bcmsdh_get_drvdata();
+            printk("wifi case wake up\n");
+            if (!pub)
+    		    return 0;
+    	    dhd_os_wake_lock_ctrl_timeout_enable(pub, 3000);
+            dhd_os_wake_lock_timeout(pub);
+            WRITE_AOBUS_REG(AO_RTI_STATUS_REG2, 0);
+        }
+	}
 #endif /* (OOB_INTR_ONLY) */
 #else
     gInstance->func[func->num] = func;

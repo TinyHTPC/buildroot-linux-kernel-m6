@@ -49,6 +49,14 @@
 #define A_BAND_5GHZ            1
 #define A_NUM_BANDS            2
 
+#define HT_CAP_PARAMS_CHAN_WIDTH_HT40_DISABLED 0
+#define HT_CAP_PARAMS_CHAN_WIDTH_HT40_ENABLED 1
+#define HT_CAP_PARAMS_SGI_DISABLED 0
+#define HT_CAP_PARAMS_SGI_ENABLED 1
+#define HT_CAP_PARAMS_INTOLERANCE_40MHz_DISABLED 0
+#define HT_CAP_PARAMS_INTOLERANCE_40MHz_ENABLED 1
+
+
 /* in ms */
 #define WMI_IMPLICIT_PSTREAM_INACTIVITY_INT 5000
 
@@ -105,7 +113,7 @@ struct wmi_data_sync_bufs {
 
 struct wmi_mgmt_tx_frame {
 	struct list_head list;
-
+	struct ath6kl_vif *vif;
 	u8 *mgmt_tx_frame;
 	size_t mgmt_tx_frame_len;
 	int mgmt_tx_frame_idx;
@@ -654,7 +662,7 @@ enum wmi_cmd_id {
     WMI_RX_FILTER_COALESCE_FILTER_OP_CMDID,
     WMI_RX_FILTER_SET_FRAME_TEST_LIST_CMDID,
  
-    /* More SONY private commands */
+    /* More CE private commands */
     WMI_SET_CUSTOM_REG,
     WMI_GET_CUSTOM_REG,
     WMI_GET_CUSTOM_PRODUCT_INFO,
@@ -669,6 +677,13 @@ enum wmi_cmd_id {
     WMI_GET_CUSTOM_ATHSTATS,
 
     WMI_TX99TOOL_CMDID,
+	WMI_SET_CUSTOM_PROBE_RESP_REPORT_CMDID,
+    WMI_SET_CUSTOM_WIDI,
+    WMI_GET_CUSTOM_WIDI,
+    WMI_SET_REGDOMAIN_CMDID,
+    
+    WMI_SET_RX_AGGREGATION,
+    
 };
 
 
@@ -1157,6 +1172,7 @@ enum wmi_phy_mode {
 };
 
 #define WMI_MAX_CHANNELS        32
+#define AR6004_WMI_MAX_CHANNELS	64
 
 
 /*
@@ -1338,6 +1354,13 @@ enum target_event_report_config {
 	NO_DISCONN_EVT_IN_RECONN
 };
 
+/*
+ * Used with WMI_AP_SET_NUM_STA_CMDID
+ */
+struct WMI_AP_NUM_STA_CMD{
+    u8     num_sta;
+};
+
 /* Command Replies */
 
 /* WMI_GET_CHANNEL_LIST_CMDID reply */
@@ -1458,12 +1481,17 @@ enum wmi_event_id {
 	WMI_RX_ACTION_EVENTID,
 	WMI_P2P_INFO_EVENTID,
 
-    /* more SONY private events */
+    /* more CE private events */
     WMI_GET_REG_EVENTID = 0xA000,
     WMI_GET_STAINFO_EVENTID,
     WMI_GET_TXPOW_EVENTID,
     WMI_GET_VERSION_INFO_EVENTID,
     WMI_GET_TESTMODE_EVENTID,
+	WMI_RX_PROBE_RESP_EVENTID,
+	WMI_ACL_REJECT_EVENTID,
+#if defined(CE_CUSTOM_1)
+    WMI_GET_WIDIMODE_EVENTID,
+#endif
 };
 
 struct wmi_ready_event_2 {
@@ -2257,6 +2285,10 @@ struct wmi_probe_req_report_cmd {
 	u8 enable;
 } __packed;
 
+struct wmi_probe_resp_req_report_cmd {
+	u8 enable;
+} __packed;
+
 struct wmi_disable_11b_rates_cmd {
 	u8 disable;
 } __packed;
@@ -2292,6 +2324,16 @@ struct wmi_p2p_capabilities_event {
 
 struct wmi_p2p_rx_probe_req_event {
 	__le32 freq;
+	__le16 len;
+	u8 data[0];
+} __packed;
+
+struct wmi_p2p_rx_probe_resp_event {
+	__le32 freq;
+	__le16 len;
+	u8 data[0];
+} __packed;
+struct wmi_acl_reject_event {
 	__le16 len;
 	u8 data[0];
 } __packed;
@@ -2372,6 +2414,8 @@ enum wmix_command_id {
 	WMIX_PROF_START_CMDID,
 	WMIX_PROF_STOP_CMDID,
 	WMIX_PROF_COUNT_GET_CMDID,
+    WMIX_DUMMY_EVENT_SET_CMDID,
+    WMIX_DUMMY_EVENT_GET_CMDID,	
 };
 
 enum wmix_event_id {
@@ -2384,6 +2428,8 @@ enum wmix_event_id {
 	WMIX_HB_CHALLENGE_RESP_EVENTID,
 	WMIX_DBGLOG_EVENTID,
 	WMIX_PROF_COUNT_EVENTID,
+	WMIX_PKTLOG_EVENTID,
+	WMIX_DUMMY_EVENTID,	
 };
 
 /*
@@ -2402,6 +2448,15 @@ struct wmix_hb_challenge_resp_cmd {
 struct ath6kl_wmix_dbglog_cfg_module_cmd {
 	__le32 valid;
 	__le32 config;
+} __packed;
+
+/*
+ * WMIX_DUMMY_EVENT_SET_CMDID
+ * configure interface for dummy event handle
+ */
+struct ath6kl_wmix_dummy_event_cmd {
+    __le16 enable;
+    __le16 interval;
 } __packed;
 
 /* End of Extended WMI (WMIX) */
@@ -2515,6 +2570,17 @@ struct wmi_set_ht_cap {
 	u8 max_ampdu_len_exp;
 } __packed;
 
+#define WMI_MAX_RATE_MASK         2
+
+struct wmi_set_fix_rates_cmd {
+    __le32 fixRateMask[WMI_MAX_RATE_MASK];
+}__packed;
+
+struct wmi_set_regdomain_cmd {
+	u8 length;
+	u8 iso_name[2];
+} __packed;
+
 enum htc_endpoint_id ath6kl_wmi_get_control_ep(struct wmi *wmi);
 void ath6kl_wmi_set_control_ep(struct wmi *wmi, enum htc_endpoint_id ep_id);
 int ath6kl_wmi_dix_2_dot3(struct wmi *wmi, struct sk_buff *skb);
@@ -2524,7 +2590,7 @@ int ath6kl_wmi_data_hdr_add(struct ath6kl_vif *vif, struct sk_buff *skb,
 			    u8 meta_ver, void *tx_meta_info);
 
 int ath6kl_wmi_dot11_hdr_remove(struct wmi *wmi, struct sk_buff *skb);
-int ath6kl_wmi_dot3_2_dix(struct sk_buff *skb);
+int ath6kl_wmi_dot3_2_dix(struct ath6kl_vif *vif, struct sk_buff *skb);
 int ath6kl_wmi_data_hdr_remove(struct ath6kl_vif *vif, struct sk_buff *skb);
 int ath6kl_wmi_implicit_create_pstream(struct ath6kl_vif *vif, struct sk_buff *skb,
 				       u32 layer2_priority, bool wmm_enabled,
@@ -2599,6 +2665,7 @@ int ath6kl_wmi_set_wmm_cmd(struct ath6kl_vif *vif, bool enable);
 int ath6kl_wmi_set_dtim_cmd(struct ath6kl_vif *vif, u8 dtim);
 int ath6kl_wmi_set_wmm_txop(struct ath6kl_vif *vif, enum wmi_txop_cfg cfg);
 int ath6kl_wmi_set_keepalive_cmd(struct ath6kl_vif *vif, u8 keep_alive_intvl);
+int ath6kl_wmi_test_cmd(struct wmi *wmi, void *buf, size_t len);
 
 s32 ath6kl_wmi_get_rate(s8 rate_index, u8 *rate_sgi, u8 *rate_mcs
 		, int ss_state);
@@ -2632,6 +2699,8 @@ int ath6kl_wmi_send_probe_response_cmd(struct ath6kl_vif *vif, u32 freq,
 				       const u8 *data, u16 data_len);
 
 int ath6kl_wmi_probe_report_req_cmd(struct ath6kl_vif *vif, bool enable);
+
+int ath6kl_wmi_probe_resp_report_req_cmd(struct ath6kl_vif *vif, bool enable);
 
 int ath6kl_wmi_info_req_cmd(struct ath6kl_vif *vif, u32 info_req_flags);
 
@@ -2690,6 +2759,15 @@ int ath6kl_wmi_lpl_enable_cmd(struct ath6kl_vif *vif,
 				struct wmi_lpl_force_enable_cmd *force_enable_cmd);
 
 int ath6kl_wmi_set_ht_cap_cmd(struct ath6kl_vif *vif,
-	u8 band, u8 chan_width_40M_supported, u8 short_GI);
+	u8 band, u8 chan_width_40M_supported, u8 short_GI, u8 intolerance_40MHz);
 
+int ath6kl_wmi_set_dummy_event_cmd(struct ath6kl_vif *vif,
+                            u16 enable,
+                            u16 interval);
+
+int ath6kl_wmi_set_fix_rates(struct ath6kl_vif *vif, u64 mask);
+
+int ath6kl_wmi_set_ap_num_sta_cmd(struct ath6kl_vif *vif, u8 sta_nums);
+
+int ath6kl_wmi_set_regdomain_cmd(struct ath6kl_vif *vif, const char *alpha2);
 #endif /* WMI_H */

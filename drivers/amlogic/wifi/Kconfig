@@ -110,7 +110,7 @@ config SAMSUNG_BCM4329_NVRAM_PATH
 	  Path to nvram file.
 	  
 source "drivers/amlogic/wifi/broadcm_40181/Kconfig"
-
+source "drivers/amlogic/wifi/mtk_5931/Kconfig"
 source "drivers/amlogic/wifi/AP6xxx/Kconfig"
 	  
 config SDIO_ATHEROS_6302_WIFI
@@ -408,5 +408,25 @@ config MT7601U
 	---help---
 	  This module adds support for wireless USB dongle based on
 	  MTK 7601u chipset.	  
+
+config MT7601UAP
+	tristate "MTK 7601U Wireless USB Dongle Soft AP support"
+	default n
+	depends on MAC80211 && AM_WIFI_USB
+	select WIRELESS_EXT
+	select WEXT_PRIV
+	---help---
+	  This module adds Soft AP support for wireless USB dongle based on
+	  MTK 7601u chipset.	  
+	  	  
+config RTL8723AS-VAU
+        tristate "Realtek 8723A series Wireless USB Dongle support"
+        default n
+        depends on MAC80211 && AM_WIFI_USB
+        select WIRELESS_EXT
+        select WEXT_PRIV
+        ---help---
+          This module adds support for wireless USB dongle based on
+          Realtek 8723AS chipset.
 
 endif # AM_WIFI

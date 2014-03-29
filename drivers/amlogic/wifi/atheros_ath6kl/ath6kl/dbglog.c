@@ -15,6 +15,7 @@
  */
 
 #include <linux/circ_buf.h>
+#include <linux/module.h>
 #include "core.h"
 #include "debug.h"
 #include "dbglog.h"

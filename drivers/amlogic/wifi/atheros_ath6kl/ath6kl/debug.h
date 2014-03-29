@@ -42,6 +42,9 @@ enum ATH6K_DEBUG_MASK {
 	ATH6KL_DBG_WOWLAN		= BIT(19),	/* wowlan tracing */
 	ATH6KL_DBG_BOOT		= BIT(20),    /* driver init and fw boot */
 	ATH6KL_DBG_WLAN_TX_AMSDU= BIT(21),    /* wlan tx a-msdu */
+	ATH6KL_DBG_ACS       = BIT(22),              /* ACS */
+	ATH6KL_DBG_HTCOEX	= BIT(23),		/* HT20/40 Coexist */
+	ATH6KL_DBG_INFO         = BIT(31),    /* keep last */
 	ATH6KL_DBG_ANY	        = 0xffffffff  /* enable all logs */
 };
 

@@ -265,7 +265,7 @@ void cfg80211_send_disassoc_ath6kl(struct net_device *dev, const u8 *buf, size_t
 }
 EXPORT_SYMBOL(cfg80211_send_disassoc_ath6kl);
 
-void cfg80211_send_unprot_deauth(struct net_device *dev, const u8 *buf,
+void cfg80211_send_unprot_deauth_ath6kl(struct net_device *dev, const u8 *buf,
 				 size_t len)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -274,9 +274,9 @@ void cfg80211_send_unprot_deauth(struct net_device *dev, const u8 *buf,
 
 	nl80211_send_unprot_deauth(rdev, dev, buf, len, GFP_ATOMIC);
 }
-EXPORT_SYMBOL(cfg80211_send_unprot_deauth);
+EXPORT_SYMBOL(cfg80211_send_unprot_deauth_ath6kl);
 
-void cfg80211_send_unprot_disassoc(struct net_device *dev, const u8 *buf,
+void cfg80211_send_unprot_disassoc_ath6kl(struct net_device *dev, const u8 *buf,
 				   size_t len)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -285,7 +285,7 @@ void cfg80211_send_unprot_disassoc(struct net_device *dev, const u8 *buf,
 
 	nl80211_send_unprot_disassoc(rdev, dev, buf, len, GFP_ATOMIC);
 }
-EXPORT_SYMBOL(cfg80211_send_unprot_disassoc);
+EXPORT_SYMBOL(cfg80211_send_unprot_disassoc_ath6kl);
 
 static void __cfg80211_auth_remove(struct wireless_dev *wdev, const u8 *addr)
 {
@@ -772,14 +772,14 @@ void cfg80211_new_sta_ath6kl(struct net_device *dev, const u8 *mac_addr,
 }
 EXPORT_SYMBOL(cfg80211_new_sta_ath6kl);
 
-void cfg80211_del_sta(struct net_device *dev, const u8 *mac_addr, gfp_t gfp)
+void cfg80211_del_sta_ath6kl(struct net_device *dev, const u8 *mac_addr, gfp_t gfp)
 {
 	struct wiphy *wiphy = dev->ieee80211_ptr->wiphy;
 	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
 
 	nl80211_send_sta_del_event(rdev, dev, mac_addr, gfp);
 }
-EXPORT_SYMBOL(cfg80211_del_sta);
+EXPORT_SYMBOL(cfg80211_del_sta_ath6kl);
 
 struct cfg80211_mgmt_registration {
 	struct list_head list;
@@ -994,7 +994,7 @@ int cfg80211_mlme_mgmt_tx(struct cfg80211_registered_device *rdev,
 				  wait, buf, len, cookie);
 }
 
-bool cfg80211_rx_mgmt(struct net_device *dev, int freq, const u8 *buf,
+bool cfg80211_rx_mgmt_ath6kl(struct net_device *dev, int freq, const u8 *buf,
 		      size_t len, gfp_t gfp)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -1046,9 +1046,28 @@ bool cfg80211_rx_mgmt(struct net_device *dev, int freq, const u8 *buf,
 
 	return result;
 }
-EXPORT_SYMBOL(cfg80211_rx_mgmt);
+EXPORT_SYMBOL(cfg80211_rx_mgmt_ath6kl);
 
-void cfg80211_mgmt_tx_status(struct net_device *dev, u64 cookie,
+bool cfg80211_rx_acl_reject_info(struct net_device *dev, const u8 *buf,
+		      size_t len, gfp_t gfp)
+{
+	struct wireless_dev *wdev = dev->ieee80211_ptr;
+	struct wiphy *wiphy = wdev->wiphy;
+	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
+
+	bool result = false;
+
+	spin_lock_bh(&wdev->mgmt_registrations_lock);
+
+    nl80211_send_acl_reject_event(rdev, dev ,buf ,len);
+
+	spin_unlock_bh(&wdev->mgmt_registrations_lock);
+result = true;
+	return result;
+}
+EXPORT_SYMBOL(cfg80211_rx_acl_reject_info);
+
+void cfg80211_mgmt_tx_status_ath6kl(struct net_device *dev, u64 cookie,
 			     const u8 *buf, size_t len, bool ack, gfp_t gfp)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -1058,9 +1077,9 @@ void cfg80211_mgmt_tx_status(struct net_device *dev, u64 cookie,
 	/* Indicate TX status of the Action frame to user space */
 	nl80211_send_mgmt_tx_status(rdev, dev, cookie, buf, len, ack, gfp);
 }
-EXPORT_SYMBOL(cfg80211_mgmt_tx_status);
+EXPORT_SYMBOL(cfg80211_mgmt_tx_status_ath6kl);
 
-void cfg80211_cqm_rssi_notify(struct net_device *dev,
+void cfg80211_cqm_rssi_notify_ath6kl(struct net_device *dev,
 			      enum nl80211_cqm_rssi_threshold_event rssi_event,
 			      gfp_t gfp)
 {
@@ -1071,9 +1090,9 @@ void cfg80211_cqm_rssi_notify(struct net_device *dev,
 	/* Indicate roaming trigger event to user space */
 	nl80211_send_cqm_rssi_notify(rdev, dev, rssi_event, gfp);
 }
-EXPORT_SYMBOL(cfg80211_cqm_rssi_notify);
+EXPORT_SYMBOL(cfg80211_cqm_rssi_notify_ath6kl);
 
-void cfg80211_cqm_pktloss_notify(struct net_device *dev,
+void cfg80211_cqm_pktloss_notify_ath6kl(struct net_device *dev,
 				 const u8 *peer, u32 num_packets, gfp_t gfp)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -1083,9 +1102,9 @@ void cfg80211_cqm_pktloss_notify(struct net_device *dev,
 	/* Indicate roaming trigger event to user space */
 	nl80211_send_cqm_pktloss_notify(rdev, dev, peer, num_packets, gfp);
 }
-EXPORT_SYMBOL(cfg80211_cqm_pktloss_notify);
+EXPORT_SYMBOL(cfg80211_cqm_pktloss_notify_ath6kl);
 
-void cfg80211_gtk_rekey_notify(struct net_device *dev, const u8 *bssid,
+void cfg80211_gtk_rekey_notify_ath6kl(struct net_device *dev, const u8 *bssid,
 			       const u8 *replay_ctr, gfp_t gfp)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -1094,4 +1113,4 @@ void cfg80211_gtk_rekey_notify(struct net_device *dev, const u8 *bssid,
 
 	nl80211_gtk_rekey_notify(rdev, dev, bssid, replay_ctr, gfp);
 }
-EXPORT_SYMBOL(cfg80211_gtk_rekey_notify);
+EXPORT_SYMBOL(cfg80211_gtk_rekey_notify_ath6kl);

@@ -86,6 +86,7 @@ void hif_detach_htc(struct ath6kl *ar);
 #define HIF_USB_RX_BUFFER_SIZE  2048
 #define HIF_USB_RX_BUNDLE_BUFFER_SIZE  16896
 #define HIF_USB_TX_BUNDLE_BUFFER_SIZE  16384
+#define WORKER_LOCK_BIT	0
 
 /* tx/rx pipes for usb */
 enum HIF_USB_PIPE_ID {
@@ -148,6 +149,7 @@ struct hif_usb_pipe {
 	struct sk_buff_head io_comp_queue;
 	struct usb_endpoint_descriptor *ep_desc;
 	struct hif_usb_pipe_stat usb_pipe_stat;
+	volatile unsigned long worker_lock;
 };
 
 #define HIF_USB_PIPE_FLAG_TX    (1 << 0)

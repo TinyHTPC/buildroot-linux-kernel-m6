@@ -5,7 +5,7 @@
  *
  * Definitions subject to change without notice.
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
+ * Copyright (C) 1999-2013, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -25,7 +25,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhdioctl.h 354894 2012-09-04 12:34:07Z $
+ * $Id: dhdioctl.h 358413 2012-09-24 04:50:47Z $
  */
 
 #ifndef _dhdioctl_h_
@@ -92,6 +92,7 @@ enum {
 #endif
 #define DHD_ARPOE_VAL	0x4000
 #define DHD_REORDER_VAL	0x8000
+#define DHD_NOCHECKDIED_VAL		0x20000 /* UTF WAR */
 #define DHD_IW_VAL	0x10000
 #define DHD_CFG_VAL	0x20000
 

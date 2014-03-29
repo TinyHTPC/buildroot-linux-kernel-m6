@@ -15,6 +15,9 @@
 #include <net/rtnetlink.h>
 #include "nl80211.h"
 #include "reg.h"
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0)) || defined(CE_CUSTOM_2) 
+#include <linux/module.h>
+#endif
 
 struct cfg80211_conn {
 	struct cfg80211_connect_params params;

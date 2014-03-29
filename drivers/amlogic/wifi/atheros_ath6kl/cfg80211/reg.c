@@ -33,9 +33,10 @@
  *
  */
 
-//#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+//#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt //+-FLUG
 
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/list.h>
 #include <linux/random.h>
@@ -698,7 +699,7 @@ static int freq_reg_info_regd(struct wiphy *wiphy,
 	return -EINVAL;
 }
 
-int freq_reg_info_ath6kl(struct wiphy *wiphy,
+int freq_reg_info(struct wiphy *wiphy,
 		  u32 center_freq,
 		  u32 desired_bw_khz,
 		  const struct ieee80211_reg_rule **reg_rule)
@@ -710,7 +711,7 @@ int freq_reg_info_ath6kl(struct wiphy *wiphy,
 				  reg_rule,
 				  NULL);
 }
-EXPORT_SYMBOL(freq_reg_info_ath6kl);
+EXPORT_SYMBOL(freq_reg_info);
 
 #ifdef CONFIG_CFG80211_REG_DEBUG
 static const char *reg_initiator_name(enum nl80211_reg_initiator initiator)
@@ -800,7 +801,7 @@ static void handle_channel(struct wiphy *wiphy,
 
 	flags = chan->orig_flags;
 
-	r = freq_reg_info_ath6kl(wiphy,
+	r = freq_reg_info(wiphy,
 			  MHZ_TO_KHZ(chan->center_freq),
 			  desired_bw_khz,
 			  &reg_rule);
@@ -1434,13 +1435,13 @@ static void reg_process_hint(struct regulatory_request *reg_request)
 	if (wiphy_idx_valid(reg_request->wiphy_idx))
 		wiphy = wiphy_idx_to_wiphy(reg_request->wiphy_idx);
 
-	if (reg_request->initiator == NL80211_REGDOM_SET_BY_DRIVER &&
+	if (initiator == NL80211_REGDOM_SET_BY_DRIVER &&
 	    !wiphy) {
 		kfree(reg_request);
 		return;
 	}
 
-	r = __regulatory_hint(wiphy, reg_request);
+	    r = __regulatory_hint(wiphy, reg_request);
 	/* This is required so that the orig_* parameters are saved */
 	if (r == -EALREADY && wiphy &&
 	    wiphy->flags & WIPHY_FLAG_STRICT_REGULATORY) {
@@ -1453,7 +1454,7 @@ static void reg_process_hint(struct regulatory_request *reg_request)
 	 * source of bogus requests.
 	 */
 	if (r != -EALREADY &&
-	    reg_request->initiator == NL80211_REGDOM_SET_BY_USER)
+	    initiator == NL80211_REGDOM_SET_BY_USER)
 		schedule_delayed_work(&reg_timeout, msecs_to_jiffies(3142));
 }
 
@@ -1881,7 +1882,7 @@ int regulatory_hint_found_beacon(struct wiphy *wiphy,
 	REG_DBG_PRINT("Found new beacon on "
 		      "frequency: %d MHz (Ch %d) on %s\n",
 		      beacon_chan->center_freq,
-		      ieee80211_frequency_to_channel_ath6kl(beacon_chan->center_freq),
+		      ieee80211_frequency_to_channel(beacon_chan->center_freq),
 		      wiphy_name(wiphy));
 
 	memcpy(&reg_beacon->chan, beacon_chan,
@@ -2004,7 +2005,7 @@ static int __set_regdom(const struct ieee80211_regdomain *rd)
 		 * checking if the alpha2 changes if CRDA was already called
 		 */
 		if (!regdom_changes(rd->alpha2))
-			return -EINVAL;
+			return -EALREADY;
 	}
 
 	/*
@@ -2056,10 +2057,10 @@ static int __set_regdom(const struct ieee80211_regdomain *rd)
 	}
 
 	/* Intersection requires a bit more work */
+	intersected_rd = regdom_intersect(rd, cfg80211_regdomain);
 
 	if (last_request->initiator != NL80211_REGDOM_SET_BY_COUNTRY_IE) {
 
-		intersected_rd = regdom_intersect(rd, cfg80211_regdomain);
 		if (!intersected_rd)
 			return -EINVAL;
 
@@ -2118,6 +2119,9 @@ int set_regdom(const struct ieee80211_regdomain *rd)
 	/* Note that this doesn't update the wiphys, this is done below */
 	r = __set_regdom(rd);
 	if (r) {
+		if ( r == -EALREADY )
+		    reg_set_request_processed();
+
 		kfree(rd);
 		mutex_unlock(&reg_mutex);
 		return r;

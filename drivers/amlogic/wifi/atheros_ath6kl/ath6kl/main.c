@@ -70,8 +70,7 @@ static void ath6kl_add_new_sta(struct ath6kl_vif *vif, u8 *mac, u16 aid, u8 *wpa
 	sta = &vif->sta_list[free_slot];
 	spin_lock_bh(&sta->lock);
 	memcpy(sta->mac, mac, ETH_ALEN);
-	if (ielen <= ATH6KL_MAX_IE)
-		memcpy(sta->wpa_ie, wpaie, ielen);
+	memcpy(sta->wpa_ie, wpaie, ielen);
 	sta->aid = aid;
 	sta->keymgmt = keymgmt;
 	sta->ucipher = ucipher;
@@ -428,7 +427,7 @@ int ath6kl_read_fwlogs(struct ath6kl *ar)
 
 		address = TARG_VTOP(ar->target_type,
 				    le32_to_cpu(debug_buf.next));
-		ath6kl_diag_read(ar, address, &debug_buf, sizeof(debug_buf));
+		ret = ath6kl_diag_read(ar, address, &debug_buf, sizeof(debug_buf));
 		if (ret)
 			goto out;
 
@@ -956,14 +955,13 @@ void disconnect_timer_handler(unsigned long ptr)
 	ath6kl_disconnect(vif);
 }
 
-void ath6kl_disconnect(struct ath6kl_vif *vif)
+int ath6kl_disconnect(struct ath6kl_vif *vif)
 {
-	if (!test_bit(WMI_READY, &vif->ar->flag))
-		return;
-
+	int ret = 0;
+	
 	if (test_bit(CONNECTED, &vif->flag) ||
 	    test_bit(CONNECT_PEND, &vif->flag)) {
-		ath6kl_wmi_disconnect_cmd(vif);
+		ret = ath6kl_wmi_disconnect_cmd(vif);
 		/*
 		 * Disconnect command is issued, clear the connect pending
 		 * flag. The connected flag will be cleared in
@@ -971,6 +969,8 @@ void ath6kl_disconnect(struct ath6kl_vif *vif)
 		 */
 		clear_bit(CONNECT_PEND, &vif->flag);
 	}
+
+	return ret;	
 }
 
 void ath6kl_deep_sleep_enable(struct ath6kl_vif *vif)
@@ -1070,9 +1070,19 @@ void ath6kl_ready_event(void *devt, u8 *datap, u32 sw_ver, u32 abi_ver)
 
 void ath6kl_scan_complete_evt(struct ath6kl_vif *vif, int status)
 {
-	ath6kl_cfg80211_scan_complete_event(vif, status);
+	bool aborted = false;
+
+	if (status != 0)
+		aborted = true;
+
+	/* FIXME : bad, may use call-back instead. */
+	ath6kl_acs_scan_complete_event(vif, aborted);
+
+	if (ath6kl_htcoex_scan_complete_event(vif, aborted) == HTCOEX_PASS_SCAN_DONE)
+		ath6kl_cfg80211_scan_complete_event(vif, status);
 
 	if (!vif->usr_bss_filter) {
+		clear_bit(CLEAR_BSSFILTER_ON_BEACON, &vif->flag);
 		ath6kl_wmi_bssfilter_cmd(vif, NONE_BSS_FILTER, 0);
 	}
 
@@ -1097,10 +1107,13 @@ void ath6kl_connect_event(struct ath6kl_vif *vif, u16 channel, u8 *bssid,
 	memcpy(vif->bssid, bssid, sizeof(vif->bssid));
 	vif->bss_ch = channel;
 
-	if ((vif->nw_type == INFRA_NETWORK))
+	if ((vif->nw_type == INFRA_NETWORK)) {
+		//speed up disconnect event come back 
+		ath6kl_wmi_disctimeout_cmd(vif, 0);					   
 		ath6kl_wmi_listeninterval_cmd(vif, vif->listen_intvl_t,
 					      vif->listen_intvl_b);
-
+	}
+	
 	netif_wake_queue(vif->net_dev);
 
 	/* Update connect & link status atomically */
@@ -1120,8 +1133,12 @@ void ath6kl_connect_event(struct ath6kl_vif *vif, u16 channel, u8 *bssid,
 	}
 
 	if (!vif->usr_bss_filter) {
-		ath6kl_wmi_bssfilter_cmd(vif, NONE_BSS_FILTER, 0);
+		set_bit(CLEAR_BSSFILTER_ON_BEACON, &vif->flag);
+		ath6kl_wmi_bssfilter_cmd(vif, CURRENT_BSS_FILTER, 0);
 	}
+
+	/* Hook connection event */
+	ath6kl_htcoex_connect_event(vif);
 }
 
 void ath6kl_tkip_micerr_event(struct ath6kl_vif *vif, u8 keyid, bool ismcast)
@@ -1154,7 +1171,7 @@ static void ath6kl_update_target_stats(struct ath6kl_vif *vif, u8 *ptr, u32 len)
 	struct ath6kl *ar = vif->ar;
 	struct wmi_target_stats *tgt_stats =
 		(struct wmi_target_stats *) ptr;
-	struct target_stats *stats = &ar->target_stats;
+	struct target_stats *stats = &vif->target_stats;
 	struct tkip_ccmp_stats *ccmp_stats;
 	u8 ac;
 	enum wlan_spatial_stream_state ss_state;
@@ -1441,12 +1458,16 @@ void ath6kl_disconnect_event(struct ath6kl_vif *vif, u8 reason, u8 *bssid,
 
 		if (!is_broadcast_ether_addr(bssid)) {
 			/* send event to application */
-			cfg80211_del_sta(vif->net_dev, bssid, GFP_KERNEL);
+			cfg80211_del_sta_ath6kl(vif->net_dev, bssid, GFP_KERNEL);
 		}
 
 		if (memcmp(vif->net_dev->dev_addr, bssid, ETH_ALEN) == 0)
 			clear_bit(CONNECTED, &vif->flag);
 		return;
+	} else if (vif->nw_type == INFRA_NETWORK) {
+		/*restore disconnect timeout when disconnect event happens*/
+		ath6kl_wmi_disctimeout_cmd(vif,
+		   	 		   ATH6KL_DISCONNECT_TIMEOUT);
 	}
 
 	ath6kl_cfg80211_disconnect_event(vif, reason, bssid,
@@ -1498,6 +1519,9 @@ void ath6kl_disconnect_event(struct ath6kl_vif *vif, u8 reason, u8 *bssid,
 	vif->bss_ch = 0;
 
 	ath6kl_tx_data_cleanup(ar);
+
+	/* Hook disconnection event */
+	ath6kl_htcoex_disconnect_event(vif);
 }
 
 static int ath6kl_open(struct net_device *dev)
@@ -1508,7 +1532,7 @@ static int ath6kl_open(struct net_device *dev)
 
 	spin_lock_irqsave(&ar->lock, flags);
 
-	set_bit(WLAN_ENABLED, &ar->flag);
+	set_bit(WLAN_ENABLED, &vif->flag);
 
 	if (test_bit(CONNECTED, &vif->flag)) {
 		netif_carrier_on(dev);
@@ -1537,11 +1561,11 @@ static int ath6kl_close(struct net_device *dev)
 		if (ath6kl_wmi_scanparams_cmd(vif, 0xFFFF, 0, 0, 0, 0, 0, 0,
 					      0, 0, 0))
 			return -EIO;
-
-		clear_bit(WLAN_ENABLED, &ar->flag);
 	}
 
 	ath6kl_cfg80211_scan_complete_event(vif, -ECANCELED);
+
+	clear_bit(WLAN_ENABLED, &vif->flag);
 
 	return 0;
 }
@@ -1555,6 +1579,7 @@ static struct net_device_stats *ath6kl_get_stats(struct net_device *dev)
 
 extern int ath6kl_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd);
 
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,28))
 static struct net_device_ops ath6kl_netdev_ops = {
 	.ndo_open               = ath6kl_open,
 	.ndo_stop               = ath6kl_close,
@@ -1562,10 +1587,19 @@ static struct net_device_ops ath6kl_netdev_ops = {
 	.ndo_get_stats          = ath6kl_get_stats,
     .ndo_do_ioctl           = ath6kl_ioctl,
 };
+#endif
 
 void init_netdev(struct net_device *dev)
 {
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,28))
 	dev->netdev_ops = &ath6kl_netdev_ops;
+#else
+        dev->open = ath6kl_open;
+        dev->stop = ath6kl_close;
+        dev->hard_start_xmit = ath6kl_data_tx;
+        dev->get_stats = ath6kl_get_stats;
+        dev->do_ioctl = ath6kl_ioctl;
+#endif
 	dev->watchdog_timeo = ATH6KL_TX_TIMEOUT;
 
 	dev->needed_headroom = ETH_HLEN;

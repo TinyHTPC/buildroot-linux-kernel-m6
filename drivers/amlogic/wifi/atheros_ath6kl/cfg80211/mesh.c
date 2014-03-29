@@ -111,7 +111,7 @@ int cfg80211_join_mesh(struct cfg80211_registered_device *rdev,
 	return err;
 }
 
-void cfg80211_notify_new_peer_candidate(struct net_device *dev,
+void cfg80211_notify_new_peer_candidate_ath6kl(struct net_device *dev,
 		const u8 *macaddr, const u8* ie, u8 ie_len, gfp_t gfp)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -122,7 +122,7 @@ void cfg80211_notify_new_peer_candidate(struct net_device *dev,
 	nl80211_send_new_peer_candidate(wiphy_to_dev(wdev->wiphy), dev,
 			macaddr, ie, ie_len, gfp);
 }
-EXPORT_SYMBOL(cfg80211_notify_new_peer_candidate);
+EXPORT_SYMBOL(cfg80211_notify_new_peer_candidate_ath6kl);
 
 static int __cfg80211_leave_mesh(struct cfg80211_registered_device *rdev,
 				 struct net_device *dev)

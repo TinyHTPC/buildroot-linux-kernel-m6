@@ -869,7 +869,7 @@ static int nl80211_send_wiphy(struct sk_buff *msg, u32 pid, u32 seq, int flags,
 	CMD(set_wds_peer, SET_WDS_PEER);
 	if (dev->wiphy.flags & WIPHY_FLAG_SUPPORTS_SCHED_SCAN)
 		CMD(sched_scan_start, START_SCHED_SCAN);
-
+	CMD(probe_client, PROBE_CLIENT);
 #undef CMD
 
 	if (dev->ops->connect || dev->ops->auth) {
@@ -985,6 +985,10 @@ static int nl80211_send_wiphy(struct sk_buff *msg, u32 pid, u32 seq, int flags,
 
 	if (nl80211_put_iface_combinations(&dev->wiphy, msg))
 		goto nla_put_failure;
+
+	if (dev->wiphy.flags & WIPHY_FLAG_HAVE_AP_SME)
+		NLA_PUT_U32(msg, NL80211_ATTR_DEVICE_AP_SME,
+			    dev->wiphy.ap_sme_capa);
 
 	return genlmsg_end(msg, hdr);
 
@@ -1530,7 +1534,8 @@ static int nl80211_valid_4addr(struct cfg80211_registered_device *rdev,
 			       enum nl80211_iftype iftype)
 {
 	if (!use_4addr) {
-		if (netdev && br_port_exists(netdev))
+		//if (netdev && (netdev->priv_flags & IFF_BRIDGE_PORT))//+FLUG
+		if (netdev && br_port_exists(netdev))//-FLUG
 			return -EBUSY;
 		return 0;
 	}
@@ -3585,6 +3590,26 @@ static int nl80211_trigger_scan(struct sk_buff *skb, struct genl_info *info)
 	return err;
 }
 
+static int nl80211_cancel_scan(struct sk_buff *skb, struct genl_info *info)
+{
+	struct cfg80211_registered_device *rdev = info->user_ptr[0];
+	struct net_device *dev = info->user_ptr[1];
+	struct wiphy *wiphy;
+	int err;
+
+	wiphy = &rdev->wiphy;
+
+	if (!rdev->ops->scan)
+		return -EOPNOTSUPP;
+
+	if (!rdev->scan_req)
+		return 0;
+
+	err = rdev->ops->scan_cancel(&rdev->wiphy, dev);
+
+	return err;
+}
+
 static int nl80211_start_sched_scan(struct sk_buff *skb,
 				    struct genl_info *info)
 {
@@ -3883,14 +3908,22 @@ static int nl80211_dump_scan(struct sk_buff *skb,
 	wdev_lock(wdev);
 	spin_lock_bh(&rdev->bss_lock);
 	cfg80211_bss_expire(rdev);
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,1,0))//+-FLUG
 	cb->seq = rdev->bss_generation;
-#endif
+#endif//+-FLUG
 
 	list_for_each_entry(scan, &rdev->bss_list, list) {
 		if (++idx <= start)
 			continue;
+
+		if(dev != scan->pub.coming_from_dev) {
+			if (atomic_read(&scan->hold)) {//bss information,return to supplicant
+				//printk("%s[%d]\n\r",__func__,__LINE__);
+			} else {
+				continue;
+			}
+		}
+
 		if (nl80211_send_bss(skb, cb,
 				cb->nlh->nlmsg_seq, NLM_F_MULTI,
 				rdev, wdev, scan) < 0) {
@@ -6026,6 +6059,14 @@ static struct genl_ops nl80211_ops[] = {
 				  NL80211_FLAG_NEED_RTNL,
 	},
 	{
+		.cmd = NL80211_CMD_SCAN_ABORTED,
+		.doit = nl80211_cancel_scan,
+		.policy = nl80211_policy,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
+				  NL80211_FLAG_NEED_RTNL,
+	},
+	{
 		.cmd = NL80211_CMD_GET_SCAN,
 		.policy = nl80211_policy,
 		.dumpit = nl80211_dump_scan,
@@ -6334,6 +6375,9 @@ static struct genl_multicast_group nl80211_scan_mcgrp = {
 static struct genl_multicast_group nl80211_regulatory_mcgrp = {
 	.name = "regulatory",
 };
+static struct genl_multicast_group nl80211_athr_mcgrp = {
+	.name = "athr",
+};
 
 /* notification functions */
 
@@ -6527,6 +6571,47 @@ void nl80211_send_sched_scan(struct cfg80211_registered_device *rdev,
 
 	genlmsg_multicast_netns(wiphy_net(&rdev->wiphy), msg, 0,
 				nl80211_scan_mcgrp.id, GFP_KERNEL);
+}
+
+static int nl80211_send_acl_reject_msg(struct sk_buff *msg,
+				 struct cfg80211_registered_device *rdev,
+				 struct net_device *netdev,
+				 u32 pid, u32 seq, int flags,
+				 u32 cmd,const u8 *buf, size_t len)
+{
+	void *hdr;
+
+	hdr = nl80211hdr_put(msg, pid, seq, flags, cmd);
+	if (!hdr)
+		return -1;
+
+	NLA_PUT_U32(msg, NL80211_ATTR_WIPHY, rdev->wiphy_idx);
+	NLA_PUT_U32(msg, NL80211_ATTR_IFINDEX, netdev->ifindex);
+	NLA_PUT(msg, NL80211_ATTR_FRAME, len, buf);//add reject mac
+
+	return genlmsg_end(msg, hdr);
+
+ nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+	return -EMSGSIZE;
+}
+void nl80211_send_acl_reject_event(struct cfg80211_registered_device *rdev,
+			     struct net_device *netdev,const u8 *buf, size_t len)
+{
+	struct sk_buff *msg;
+
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
+	if (!msg)
+		return;
+
+	if (nl80211_send_acl_reject_msg(msg, rdev, netdev, 0, 0, 0,
+				  NL80211_CMD_ACL_REJECT_INFO,buf,len) < 0) {
+		nlmsg_free(msg);
+		return;
+	}
+
+	genlmsg_multicast_netns(wiphy_net(&rdev->wiphy), msg, 0,
+				nl80211_athr_mcgrp.id, GFP_KERNEL);
 }
 
 /*
@@ -7397,6 +7482,10 @@ int nl80211_init(void)
 	if (err)
 		goto err_out;
 
+	err = genl_register_mc_group(&nl80211_fam, &nl80211_athr_mcgrp);
+	if (err)
+		goto err_out;
+		
 	err = genl_register_mc_group(&nl80211_fam, &nl80211_regulatory_mcgrp);
 	if (err)
 		goto err_out;

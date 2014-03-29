@@ -23,7 +23,6 @@
 obj-m		+= ath6kl_usb.o
 
 ath6kl_usb-objs := \
-        fw_ram_ar6004_1_1.o \
 		debug.o \
 		bmi.o \
 		cfg80211.o \
@@ -33,6 +32,12 @@ ath6kl_usb-objs := \
 		wmi.o \
 		hif_usb.o \
 		htc_pipe.o \
-		dbglog.o	\
-		sony_athtst.o \
-		tx99_ioctl.o
+		dbglog.o \
+		ce_athtst.o \
+		tx99_ioctl.o \
+		acl_ioctl.o \
+		acs.o \
+		extap.o \
+		mitbl.o \
+		testmode.o \
+		htcoex.o

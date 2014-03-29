@@ -89,7 +89,7 @@ unsigned int dac_mute_const = 0x800000;
                       		(N) * (OD+1) * (XD)
 */
 #if MESON_CPU_TYPE >= MESON_CPU_TYPE_MESON6
-int audio_clock_config_table[][13][2]=
+int audio_clock_config_table[][12][2]=
 {
 	/*{HIU Reg , XD - 1)
 	   //7.875k, 8K, 11.025k, 12k, 16k, 22.05k, 24k, 32k, 44.1k, 48k, 96k, 192k
@@ -109,7 +109,6 @@ int audio_clock_config_table[][13][2]=
 		{0x0004c4a4, (87-1)},  // 22.05
 		{0x0007e47f, (43-1)},  // 24
 		{0x0007f3f0, (127-1)}, // 7875
-		{0x0004cdf3, (21-1)}, // 88.2
 #else
 	//512FS
 		{0x0004f880, (25-1)},  // 32
@@ -124,7 +123,6 @@ int audio_clock_config_table[][13][2]=
 		{0x0004cdf3, (42-1)},  // 22.05
 		{0x0007c4e6, (23-1)},  // 24
 		{0x0006e1b6, (76-1)}, // 7875
-		{0x0004f880, (9-1)}, // 88.2
 #endif
 	},
 	{
@@ -141,7 +139,6 @@ int audio_clock_config_table[][13][2]=
 		{0x0004c4a4, (58-1)},  // 22.05
 		{0x0004c60e, (53-1)},  // 24
 		{0x0007fdfa, (83-1)},  // 7875
-		{0x0004cdf3, (14-1)}, // 88.2
 	}
 };
 #else
@@ -192,16 +189,10 @@ int audio_clock_config_table[][11][2]=
 #endif
 
 
-void audio_set_aiubuf(u32 addr, u32 size, unsigned int channel)
+void audio_set_aiubuf(u32 addr, u32 size)
 {
-	printk("====== %s ======\n",__FUNCTION__);
     WRITE_MPEG_REG(AIU_MEM_I2S_START_PTR, addr & 0xffffffc0);
     WRITE_MPEG_REG(AIU_MEM_I2S_RD_PTR, addr & 0xffffffc0);
-    if(channel == 8)
-		WRITE_MPEG_REG(AIU_MEM_I2S_END_PTR, (addr & 0xffffffc0) + (size & 0xffffffc0) - 256); 
-	else if(channel == 6)
-		WRITE_MPEG_REG(AIU_MEM_I2S_END_PTR, (addr & 0xffffffc0) + (size & 0xffffffc0) - 192); 
-	else
     WRITE_MPEG_REG(AIU_MEM_I2S_END_PTR, (addr & 0xffffffc0) + (size & 0xffffffc0) - 64);   //this is for 16bit 2 channel
 
     WRITE_MPEG_REG(AIU_I2S_MISC,		0x0004);	// Hold I2S
@@ -209,17 +200,6 @@ void audio_set_aiubuf(u32 addr, u32 size, unsigned int channel)
 	// As the default amclk is 24.576MHz, set i2s and iec958 divisor appropriately so as not to exceed the maximum sample rate.
 	WRITE_MPEG_REG(AIU_I2S_MISC,		0x0010 );	// Release hold and force audio data to left or right
 
-	if(channel == 8){
-		printk(" %s channel == 8\n",__FUNCTION__);
-	WRITE_MPEG_REG(AIU_MEM_I2S_MASKS,		(24 << 16) |	// [31:16] IRQ block.
-								(0xff << 8) |	// [15: 8] chan_mem_mask. Each bit indicates which channels exist in memory
-								(0xff << 0));	// [ 7: 0] chan_rd_mask.  Each bit indicates which channels are READ from memory
-		}
-	else if(channel == 6)
-	WRITE_MPEG_REG(AIU_MEM_I2S_MASKS,		(24 << 16) |	// [31:16] IRQ block.
-								(0x3f << 8) |	// [15: 8] chan_mem_mask. Each bit indicates which channels exist in memory
-								(0x3f << 0));	// [ 7: 0] chan_rd_mask.  Each bit indicates which channels are READ from memory
-	else 
 	WRITE_MPEG_REG(AIU_MEM_I2S_MASKS,		(24 << 16) |	// [31:16] IRQ block.
 								(0x3 << 8) |	// [15: 8] chan_mem_mask. Each bit indicates which channels exist in memory
 								(0x3 << 0));	// [ 7: 0] chan_rd_mask.  Each bit indicates which channels are READ from memory
@@ -537,9 +517,6 @@ void audio_set_clk(unsigned freq, unsigned fs_config)
 				break;
 			case AUDIO_CLK_FREQ_24:
 				index = 10;
-				break;
-			case AUDIO_CLK_FREQ_882:
-				index = 12;
 				break;
 			default:
 				index=0;

@@ -14,17 +14,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <linux/vmalloc.h>
-
 #include "core.h"
 #include "hif-ops.h"
 #include "cfg80211.h"
 #include "target.h"
 #include "debug.h"
-//#include "ioctl_vendor_sony.h"
-#include "sony_athtst.h"
+#include "ce_athtst.h"
 #include "hif-ops.h"
 #include "tx99_wcmd.h"
+#include <linux/vmalloc.h>
 
 static inline struct sk_buff *ath6kl_wmi_get_new_buf(u32 size)
 {
@@ -48,7 +46,7 @@ int ath6kl_wmi_tx99_cmd(struct net_device *netdev, void *data)
     unsigned long      req_len = sizeof(tx99_wcmd_t);
     unsigned long      status = EIO;
 
-    req = vmalloc(req_len);
+    req = (tx99_wcmd_t*)vmalloc(req_len);
    
     if(!req)
         return ENOMEM;
@@ -73,33 +71,41 @@ int ath6kl_wmi_tx99_cmd(struct net_device *netdev, void *data)
     printk("%s[%d]req->data.type=%d\n\r",__func__,__LINE__,req->data.type);
     
     #if 1
-{    
-	struct sk_buff *skb;
-	struct WMI_TX99_STRUCT *cmd;
-	int ret;
+	{    
+		struct sk_buff *skb;
+		struct WMI_TX99_STRUCT *cmd;
+		int ret;
 
-    skb = ath6kl_wmi_get_new_buf(sizeof(*cmd));
-    if (!skb)
-        return -ENOMEM;
-
-    cmd = (struct WMI_TX99_STRUCT *) skb->data;
-    //transfer to little endian
-    memcpy(cmd->if_name, req->if_name,  sizeof(cmd->if_name));
-    
-    cmd->type = cpu_to_le32(req->type); 
-    
-    cmd->data.freq = cpu_to_le32(req->data.freq);
-    cmd->data.htmode = cpu_to_le32(req->data.htmode);
-    cmd->data.htext = cpu_to_le32(req->data.htext);
-    cmd->data.rate = cpu_to_le32(req->data.rate);
-    cmd->data.power = cpu_to_le32(req->data.power);
-    cmd->data.txmode = cpu_to_le32(req->data.txmode);
-    cmd->data.chanmask = cpu_to_le32(req->data.chanmask);
-    cmd->data.type = cpu_to_le32(req->data.type);
-    
-    ret = ath6kl_wmi_cmd_send(vif, skb, WMI_TX99TOOL_CMDID,
-                  NO_SYNC_WMIFLAG);
-}	    
+		skb = ath6kl_wmi_get_new_buf(sizeof(*cmd));
+		if (!skb) {
+			vfree(req);
+			return -ENOMEM;
+		}
+		if (down_interruptible(&vif->ar->sem)) {
+			vfree(req);
+			dev_kfree_skb(skb);
+			return -EBUSY;
+		}
+		cmd = (struct WMI_TX99_STRUCT *) skb->data;
+		//transfer to little endian
+		memcpy(cmd->if_name, req->if_name,  sizeof(cmd->if_name));
+		
+		cmd->type = cpu_to_le32(req->type); 
+		
+		cmd->data.freq = cpu_to_le32(req->data.freq);
+		cmd->data.htmode = cpu_to_le32(req->data.htmode);
+		cmd->data.htext = cpu_to_le32(req->data.htext);
+		cmd->data.rate = cpu_to_le32(req->data.rate);
+		cmd->data.power = cpu_to_le32(req->data.power);
+		cmd->data.txmode = cpu_to_le32(req->data.txmode);
+		cmd->data.chanmask = cpu_to_le32(req->data.chanmask);
+		cmd->data.type = cpu_to_le32(req->data.type);
+		
+		ret = ath6kl_wmi_cmd_send(vif, skb, WMI_TX99TOOL_CMDID,
+					  NO_SYNC_WMIFLAG);
+					  
+		up(&vif->ar->sem);					  
+	}	    
     #endif
     
     //status = __athtst_wioctl_sw[req->iic_cmd](sc, (athcfg_wcmd_data_t *)&req->iic_data);       

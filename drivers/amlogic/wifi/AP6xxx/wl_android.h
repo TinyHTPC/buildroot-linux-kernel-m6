@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver - Android related functions
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
+ * Copyright (C) 1999-2013, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_android.h 367273 2012-11-07 09:58:55Z $
+ * $Id: wl_android.h 367305 2012-11-07 13:49:55Z $
  */
 
 #include <linux/module.h>
@@ -31,6 +31,14 @@
 /* If any feature uses the Generic Netlink Interface, put it here to enable WL_GENL
  * automatically
  */
+#ifdef WL_SDO
+#define WL_GENL
+#endif
+
+
+#ifdef WL_GENL
+#include <net/genetlink.h>
+#endif
 
 /**
  * Android platform dependent functions, feel free to add Android specific functions here
@@ -49,6 +57,63 @@ int wl_android_wifi_on(struct net_device *dev);
 int wl_android_wifi_off(struct net_device *dev);
 int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd);
 
+#if defined(CONFIG_WIFI_CONTROL_FUNC)
+int wl_android_wifictrl_func_add(void);
+void wl_android_wifictrl_func_del(void);
+void* wl_android_prealloc(int section, unsigned long size);
+
+int wifi_get_irq_number(unsigned long *irq_flags_ptr);
+int wifi_set_power(int on, unsigned long msec);
+int wifi_get_mac_addr(unsigned char *buf);
+void *wifi_get_country_code(char *ccode);
+#endif /* CONFIG_WIFI_CONTROL_FUNC */
+
+#ifdef WL_GENL
+typedef struct bcm_event_hdr {
+	u16 event_type;
+	u16 len;
+} bcm_event_hdr_t;
+
+/* attributes (variables): the index in this enum is used as a reference for the type,
+ *             userspace application has to indicate the corresponding type
+ *             the policy is used for security considerations
+ */
+enum {
+	BCM_GENL_ATTR_UNSPEC,
+	BCM_GENL_ATTR_STRING,
+	BCM_GENL_ATTR_MSG,
+	__BCM_GENL_ATTR_MAX
+};
+#define BCM_GENL_ATTR_MAX (__BCM_GENL_ATTR_MAX - 1)
+
+/* commands: enumeration of all commands (functions),
+ * used by userspace application to identify command to be ececuted
+ */
+enum {
+	BCM_GENL_CMD_UNSPEC,
+	BCM_GENL_CMD_MSG,
+	__BCM_GENL_CMD_MAX
+};
+#define BCM_GENL_CMD_MAX (__BCM_GENL_CMD_MAX - 1)
+
+/* Enum values used by the BCM supplicant to identify the events */
+enum {
+	BCM_E_UNSPEC,
+	BCM_E_SVC_FOUND,
+	BCM_E_DEV_FOUND,
+	BCM_E_DEV_LOST,
+	BCM_E_MAX
+};
+
+s32 wl_genl_send_msg(struct net_device *ndev, u32 event_type,
+	u8 *string, u16 len, u8 *hdr, u16 hdrlen);
+#endif /* WL_GENL */
+
+/* terence:
+ * BSSCACHE: Cache bss list
+ * RSSAVG: Average RSSI of BSS list
+ * RSSIOFFSET: RSSI offset
+ */
 #define BSSCACHE
 #define RSSIAVG
 #define RSSIOFFSET
@@ -84,14 +149,11 @@ int16 wl_get_avg_rssi(wl_rssi_cache_ctrl_t *rssi_cache_ctrl, void *addr);
 #define RSSI_INT ((RSSI_MAX-RSSI_MIN)/RSSI_OFFSET)
 #define BCM4330_CHIP_ID		0x4330
 #define BCM4330B2_CHIP_REV      4
-extern uint chip;
-extern uint chiprev;
-
 int wl_update_rssi_offset(int rssi);
 #endif
 
 #if defined(BSSCACHE)
-#define BSSCACHE_LEN	4
+#define BSSCACHE_LEN	8
 #define BSSCACHE_TIME	15000
 
 typedef struct wl_bss_cache {
@@ -114,14 +176,3 @@ void wl_run_bss_cache_timer(wl_bss_cache_ctrl_t *bss_cache_ctrl, int kick_off);
 void wl_release_bss_cache_ctrl(wl_bss_cache_ctrl_t *bss_cache_ctrl);
 void wl_init_bss_cache_ctrl(wl_bss_cache_ctrl_t *bss_cache_ctrl);
 #endif
-
-#if defined(CONFIG_WIFI_CONTROL_FUNC)
-int wl_android_wifictrl_func_add(void);
-void wl_android_wifictrl_func_del(void);
-void* wl_android_prealloc(int section, unsigned long size);
-
-int wifi_get_irq_number(unsigned long *irq_flags_ptr);
-int wifi_set_power(int on, unsigned long msec);
-int wifi_get_mac_addr(unsigned char *buf);
-void *wifi_get_country_code(char *ccode);
-#endif /* CONFIG_WIFI_CONTROL_FUNC */

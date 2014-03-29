@@ -138,6 +138,20 @@ struct ieee80211_channel {
 	int orig_mag, orig_mpwr;
 };
 
+#define IEEE80211_CHAN_MAX 255
+struct ieee80211_acs {
+    struct ieee80211_channel            *acs_channel;
+
+    u_int16_t                           acs_nchans;         /* # of all available chans */
+    struct ieee80211_channel            *acs_chans[IEEE80211_CHAN_MAX];
+    u_int8_t                            acs_chan_maps[IEEE80211_CHAN_MAX];       /* channel mapping array */
+    u_int32_t                           acs_chan_maxrssi[IEEE80211_CHAN_MAX];    /* max rssi of these channels */
+    u_int32_t                           acs_minrssi_11na;    /* min rssi in 5 GHz band selected channel */
+    u_int32_t                           acs_avgrssi_11ng;    /* average rssi in 2.4 GHz band selected channel */
+};
+typedef struct ieee80211_acs    *ieee80211_acs_t;
+
+
 /**
  * enum ieee80211_rate_flags - rate flags
  *
@@ -951,6 +965,8 @@ struct cfg80211_bss {
 
 	void (*free_priv)(struct cfg80211_bss *bss);
 	u8 priv[0] __attribute__((__aligned__(sizeof(void *))));
+
+	struct net_device *coming_from_dev;
 };
 
 /**
@@ -1466,6 +1482,8 @@ struct cfg80211_ops {
 	int	(*scan)(struct wiphy *wiphy, struct net_device *dev,
 			struct cfg80211_scan_request *request);
 
+	int	(*scan_cancel)(struct wiphy *wiphy, struct net_device *dev);
+
 	int	(*auth)(struct wiphy *wiphy, struct net_device *dev,
 			struct cfg80211_auth_request *req);
 	int	(*assoc)(struct wiphy *wiphy, struct net_device *dev,
@@ -1573,6 +1591,10 @@ struct cfg80211_ops {
 	int 	(*set_wow_mode)(struct wiphy *wiphy,
 				struct cfg80211_wowlan *wow);
 	int 	(*clr_wow_mode)(struct wiphy *wiphy);
+	#if 1//support in the future
+	int	(*probe_client)(struct wiphy *wiphy, struct net_device *dev,
+				const u8 *peer, u64 *cookie);	
+	#endif				
 };
 
 /*
@@ -1636,6 +1658,13 @@ enum wiphy_flags {
 	WIPHY_FLAG_MESH_AUTH			= BIT(10),
 	WIPHY_FLAG_SUPPORTS_SCHED_SCAN		= BIT(11),
 	WIPHY_FLAG_ENFORCE_COMBINATIONS		= BIT(12),
+	WIPHY_FLAG_SUPPORTS_FW_ROAM		= BIT(13),
+	WIPHY_FLAG_AP_UAPSD			= BIT(14),
+	WIPHY_FLAG_SUPPORTS_TDLS		= BIT(15),
+	WIPHY_FLAG_TDLS_EXTERNAL_SETUP		= BIT(16),
+	WIPHY_FLAG_HAVE_AP_SME			= BIT(17),
+	WIPHY_FLAG_REPORTS_OBSS			= BIT(18),
+	WIPHY_FLAG_AP_PROBE_RESP_OFFLOAD	= BIT(19),
 };
 
 /**
@@ -1862,6 +1891,8 @@ struct wiphy {
 	u16 interface_modes;
 
 	u32 flags;
+
+	u32 ap_sme_capa;
 
 	enum cfg80211_signal_type signal_type;
 
@@ -2153,10 +2184,10 @@ static inline void *wdev_priv(struct wireless_dev *wdev)
 extern int ieee80211_channel_to_frequency_ath6kl(int chan, enum ieee80211_band band);
 
 /**
- * ieee80211_frequency_to_channel_ath6kl - convert frequency to channel number
+ * ieee80211_frequency_to_channel - convert frequency to channel number
  * @freq: center frequency
  */
-extern int ieee80211_frequency_to_channel_ath6kl(int freq);
+extern int ieee80211_frequency_to_channel(int freq);
 
 /*
  * Name indirection necessary because the ieee80211 code also has
@@ -2167,6 +2198,12 @@ extern int ieee80211_frequency_to_channel_ath6kl(int freq);
  */
 extern struct ieee80211_channel *__ieee80211_get_channel_ath6kl(struct wiphy *wiphy,
 							 int freq);
+
+void ieee80211_acs_construct_chan_list(struct wiphy *wiphy,
+						  ieee80211_acs_t acs);
+struct ieee80211_channel *ieee80211_is_support_band(struct wiphy *wiphy,
+						  int freq,enum ieee80211_band band);						  
+
 /**
  * ieee80211_get_channel - get channel struct from wiphy for specified frequency
  * @wiphy: the struct wiphy to get the channel for
@@ -2275,7 +2312,7 @@ extern int ieee80211_radiotap_iterator_next_ath6kl(
 	struct ieee80211_radiotap_iterator *iterator);
 
 
-extern const unsigned char rfc1042_header_ath6kl[6];
+extern const unsigned char rfc1042_header[6];
 extern const unsigned char bridge_tunnel_header_ath6kl[6];
 
 /* Parsed Information Elements */
@@ -2477,7 +2514,7 @@ extern void wiphy_apply_custom_regulatory_ath6kl(
 	const struct ieee80211_regdomain *regd);
 
 /**
- * freq_reg_info_ath6kl - get regulatory information for the given frequency
+ * freq_reg_info - get regulatory information for the given frequency
  * @wiphy: the wiphy for which we want to process this rule for
  * @center_freq: Frequency in KHz for which we want regulatory information for
  * @desired_bw_khz: the desired max bandwidth you want to use per
@@ -2498,7 +2535,7 @@ extern void wiphy_apply_custom_regulatory_ath6kl(
  * freq_in_rule_band() for our current definition of a band -- this is purely
  * subjective and right now its 802.11 specific.
  */
-extern int freq_reg_info_ath6kl(struct wiphy *wiphy,
+extern int freq_reg_info(struct wiphy *wiphy,
 			 u32 center_freq,
 			 u32 desired_bw_khz,
 			 const struct ieee80211_reg_rule **reg_rule);
@@ -2518,14 +2555,14 @@ extern int freq_reg_info_ath6kl(struct wiphy *wiphy,
 void cfg80211_scan_done_ath6kl(struct cfg80211_scan_request *request, bool aborted);
 
 /**
- * cfg80211_sched_scan_results - notify that new scan results are available
+ * cfg80211_sched_scan_results_ath6kl - notify that new scan results are available
  *
  * @wiphy: the wiphy which got scheduled scan results
  */
-void cfg80211_sched_scan_results(struct wiphy *wiphy);
+void cfg80211_sched_scan_results_ath6kl(struct wiphy *wiphy);
 
 /**
- * cfg80211_sched_scan_stopped - notify that the scheduled scan has stopped
+ * cfg80211_sched_scan_stopped_ath6kl - notify that the scheduled scan has stopped
  *
  * @wiphy: the wiphy on which the scheduled scan stopped
  *
@@ -2533,7 +2570,7 @@ void cfg80211_sched_scan_results(struct wiphy *wiphy);
  * scheduled scan had to be stopped, for whatever reason.  The driver
  * is then called back via the sched_scan_stop operation when done.
  */
-void cfg80211_sched_scan_stopped(struct wiphy *wiphy);
+void cfg80211_sched_scan_stopped_ath6kl(struct wiphy *wiphy);
 
 /**
  * cfg80211_inform_bss_frame_ath6kl - inform cfg80211 of a received BSS frame
@@ -2714,7 +2751,7 @@ void __cfg80211_send_disassoc_ath6kl(struct net_device *dev, const u8 *buf,
 	size_t len);
 
 /**
- * cfg80211_send_unprot_deauth - notification of unprotected deauthentication
+ * cfg80211_send_unprot_deauth_ath6kl - notification of unprotected deauthentication
  * @dev: network device
  * @buf: deauthentication frame (header + body)
  * @len: length of the frame data
@@ -2723,11 +2760,11 @@ void __cfg80211_send_disassoc_ath6kl(struct net_device *dev, const u8 *buf,
  * dropped in station mode because of MFP being used but the Deauthentication
  * frame was not protected. This function may sleep.
  */
-void cfg80211_send_unprot_deauth(struct net_device *dev, const u8 *buf,
+void cfg80211_send_unprot_deauth_ath6kl(struct net_device *dev, const u8 *buf,
 				 size_t len);
 
 /**
- * cfg80211_send_unprot_disassoc - notification of unprotected disassociation
+ * cfg80211_send_unprot_disassoc_ath6kl - notification of unprotected disassociation
  * @dev: network device
  * @buf: disassociation frame (header + body)
  * @len: length of the frame data
@@ -2736,7 +2773,7 @@ void cfg80211_send_unprot_deauth(struct net_device *dev, const u8 *buf,
  * dropped in station mode because of MFP being used but the Disassociation
  * frame was not protected. This function may sleep.
  */
-void cfg80211_send_unprot_disassoc(struct net_device *dev, const u8 *buf,
+void cfg80211_send_unprot_disassoc_ath6kl(struct net_device *dev, const u8 *buf,
 				   size_t len);
 
 /**
@@ -2785,7 +2822,7 @@ void cfg80211_ibss_joined_ath6kl(struct net_device *dev, const u8 *bssid, gfp_t 
  * detected, most likely via a beacon or, less likely, via a probe response.
  * cfg80211 then sends a notification to userspace.
  */
-void cfg80211_notify_new_peer_candidate(struct net_device *dev,
+void cfg80211_notify_new_peer_candidate_ath6kl(struct net_device *dev,
 		const u8 *macaddr, const u8 *ie, u8 ie_len, gfp_t gfp);
 
 /**
@@ -3011,16 +3048,16 @@ void cfg80211_new_sta_ath6kl(struct net_device *dev, const u8 *mac_addr,
 		      struct station_info *sinfo, gfp_t gfp);
 
 /**
- * cfg80211_del_sta - notify userspace about deletion of a station
+ * cfg80211_del_sta_ath6kl - notify userspace about deletion of a station
  *
  * @dev: the netdev
  * @mac_addr: the station's address
  * @gfp: allocation flags
  */
-void cfg80211_del_sta(struct net_device *dev, const u8 *mac_addr, gfp_t gfp);
+void cfg80211_del_sta_ath6kl(struct net_device *dev, const u8 *mac_addr, gfp_t gfp);
 
 /**
- * cfg80211_rx_mgmt - notification of received, unprocessed management frame
+ * cfg80211_rx_mgmt_ath6kl - notification of received, unprocessed management frame
  * @dev: network device
  * @freq: Frequency on which the frame was received in MHz
  * @buf: Management frame (header + body)
@@ -3035,11 +3072,14 @@ void cfg80211_del_sta(struct net_device *dev, const u8 *mac_addr, gfp_t gfp);
  * This function is called whenever an Action frame is received for a station
  * mode interface, but is not processed in kernel.
  */
-bool cfg80211_rx_mgmt(struct net_device *dev, int freq, const u8 *buf,
+bool cfg80211_rx_mgmt_ath6kl(struct net_device *dev, int freq, const u8 *buf,
+		      size_t len, gfp_t gfp);
+
+bool cfg80211_rx_acl_reject_info(struct net_device *dev, const u8 *buf,
 		      size_t len, gfp_t gfp);
 
 /**
- * cfg80211_mgmt_tx_status - notification of TX status for management frame
+ * cfg80211_mgmt_tx_status_ath6kl - notification of TX status for management frame
  * @dev: network device
  * @cookie: Cookie returned by cfg80211_ops::mgmt_tx()
  * @buf: Management frame (header + body)
@@ -3051,12 +3091,12 @@ bool cfg80211_rx_mgmt(struct net_device *dev, int freq, const u8 *buf,
  * transmitted with cfg80211_ops::mgmt_tx() to report the TX status of the
  * transmission attempt.
  */
-void cfg80211_mgmt_tx_status(struct net_device *dev, u64 cookie,
+void cfg80211_mgmt_tx_status_ath6kl(struct net_device *dev, u64 cookie,
 			     const u8 *buf, size_t len, bool ack, gfp_t gfp);
 
 
 /**
- * cfg80211_cqm_rssi_notify - connection quality monitoring rssi event
+ * cfg80211_cqm_rssi_notify_ath6kl - connection quality monitoring rssi event
  * @dev: network device
  * @rssi_event: the triggered RSSI event
  * @gfp: context flags
@@ -3064,12 +3104,12 @@ void cfg80211_mgmt_tx_status(struct net_device *dev, u64 cookie,
  * This function is called when a configured connection quality monitoring
  * rssi threshold reached event occurs.
  */
-void cfg80211_cqm_rssi_notify(struct net_device *dev,
+void cfg80211_cqm_rssi_notify_ath6kl(struct net_device *dev,
 			      enum nl80211_cqm_rssi_threshold_event rssi_event,
 			      gfp_t gfp);
 
 /**
- * cfg80211_cqm_pktloss_notify - notify userspace about packetloss to peer
+ * cfg80211_cqm_pktloss_notify_ath6kl - notify userspace about packetloss to peer
  * @dev: network device
  * @peer: peer's MAC address
  * @num_packets: how many packets were lost -- should be a fixed threshold
@@ -3077,18 +3117,20 @@ void cfg80211_cqm_rssi_notify(struct net_device *dev,
  *	threshold (to account for temporary interference)
  * @gfp: context flags
  */
-void cfg80211_cqm_pktloss_notify(struct net_device *dev,
+void cfg80211_cqm_pktloss_notify_ath6kl(struct net_device *dev,
 				 const u8 *peer, u32 num_packets, gfp_t gfp);
 
 /**
- * cfg80211_gtk_rekey_notify - notify userspace about driver rekeying
+ * cfg80211_gtk_rekey_notify_ath6kl - notify userspace about driver rekeying
  * @dev: network device
  * @bssid: BSSID of AP (to avoid races)
  * @replay_ctr: new replay counter
  * @gfp: allocation flags
  */
-void cfg80211_gtk_rekey_notify(struct net_device *dev, const u8 *bssid,
+void cfg80211_gtk_rekey_notify_ath6kl(struct net_device *dev, const u8 *bssid,
 			       const u8 *replay_ctr, gfp_t gfp);
+
+bool cfg80211_suspend_issue(struct net_device *dev, int suspend);
 
 /* Logging, debugging and troubleshooting/diagnostic helpers. */
 

@@ -761,6 +761,14 @@ struct ieee80211_mgmt {
 					u8 action;
 					u8 smps_control;
 				} __attribute__ ((packed)) ht_smps;
+				struct {
+					u8 public_action;
+					u8 vendor[3];
+					u8 subtype;
+					u8 p2p_public_action_subtype;
+					u8 p2p_public_action_dialog_token;
+					u8 variable[0];
+				} __attribute__ ((packed)) p2p_action;
 			} u;
 		} __attribute__ ((packed)) action;
 	} u;

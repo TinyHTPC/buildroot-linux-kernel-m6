@@ -19,6 +19,7 @@
 #include "core.h"
 #include "debug.h"
 
+extern unsigned int testmode;
 extern unsigned int htc_bundle_recv;
 extern unsigned int htc_bundle_send;
 extern unsigned int starving_prevention;
@@ -120,7 +121,7 @@ static void get_htc_packet_credit_based(struct htc_pipe_target *target,
 {
 	int credits_required;
 	int remainder;
-	u8 send_flags;
+	u8 send_flags = 0;
 	struct htc_packet *packet;
 	unsigned int transfer_len; 
 	int starving = ep->starving;
@@ -279,11 +280,11 @@ static int htc_issue_packets_sync(struct htc_pipe_target *target,
 	u16 payload_len;
 	struct sk_buff *nbuf;
 	struct htc_frame_hdr *htc_hdr;
-	struct htc_packet *packet;
+	struct htc_packet *packet = NULL;
 	unsigned int transfer_len;
 	int credits_required;
 	int remainder;
-	u8 send_flags;
+	u8 send_flags = 0;
 
 	spin_lock_bh(&target->htc_txlock);
 	while (!list_empty(pkt_queue)) {
@@ -350,7 +351,7 @@ static int htc_issue_packets_sync(struct htc_pipe_target *target,
 		packet->info.tx.flags |= HTC_TX_PACKET_FLAG_FIXUP_NETBUF;
 
 		/* Endianess? */
-		put_unaligned((u16) payload_len, &htc_hdr->payld_len);
+		htc_hdr->payld_len = cpu_to_le16(payload_len);
 		htc_hdr->flags = packet->info.tx.flags;
 		htc_hdr->eid = (u8) packet->endpoint;
 		htc_hdr->ctrl[0] = 0;
@@ -422,7 +423,7 @@ static int htc_issue_packets(struct htc_pipe_target *target,
 
     if (htc_bundle_send && (ep->pipeid_ul != 0 /* HIF_TX_CTRL_PIPE */)) {
         /* only for HIF data pipes */
-        struct sk_buff *msg_bundle[HTC_HOST_MAX_MSG_PER_BUNDLE];
+        struct sk_buff *msg_bundle[HTC_HOST_MAX_MSG_PER_BUNDLE] = {};
         int msgs_to_bundle = 0;
         while (!list_empty(pkt_queue)) {
             packet = list_first_entry(pkt_queue,
@@ -449,7 +450,7 @@ static int htc_issue_packets(struct htc_pipe_target *target,
             packet->info.tx.flags |= HTC_FLAGS_SEND_BUNDLE;
 
             /* Endianess? */
-            put_unaligned((u16) payload_len, &htc_hdr->payld_len);
+            htc_hdr->payld_len = cpu_to_le16(payload_len);
             htc_hdr->flags = packet->info.tx.flags;
             htc_hdr->eid = (u8) packet->endpoint;
             htc_hdr->ctrl[0] = 0;
@@ -496,7 +497,7 @@ static int htc_issue_packets(struct htc_pipe_target *target,
 		packet->info.tx.flags |= HTC_TX_PACKET_FLAG_FIXUP_NETBUF;
 
 		/* Endianess? */
-		put_unaligned((u16) payload_len, &htc_hdr->payld_len);
+		htc_hdr->payld_len = cpu_to_le16(payload_len);
 		htc_hdr->flags = packet->info.tx.flags;
 		htc_hdr->eid = (u8) packet->endpoint;
 		htc_hdr->ctrl[0] = 0;
@@ -633,7 +634,7 @@ static enum htc_send_queue_result htc_try_send(struct htc_pipe_target *target,
 					  struct list_head *callers_send_queue)
 {
 	struct list_head send_queue;	/* temp queue to hold packets */
-	struct htc_packet *packet, *tmp_pkt;
+	struct htc_packet *packet = NULL, *tmp_pkt=NULL;
 	struct ath6kl *ar = target->parent.dev->ar;
 	int tx_resources;
 	int starving;
@@ -1006,7 +1007,10 @@ static int htc_setup_target_buffer_assignments(struct htc_pipe_target *target)
 
 		entry++;
 		entry->service_id = WMI_DATA_BK_SVC;
-		entry->credit_alloc = 4;
+		if (testmode == 0)
+			entry->credit_alloc = 4;
+		else
+			entry->credit_alloc = credit_per_maxmsg;
 		credits -= (int)entry->credit_alloc;
 		if (credits <= 0)
 			return status;
@@ -1291,22 +1295,21 @@ static int htc_send_pkts_sched_check(struct htc_pipe_target *target, enum htc_en
 	struct list_head *tx_queue;
 	u16 ac_queue_status[DATA_EP_SIZE] = {0, 0, 0, 0};
 
-	if (id < ENDPOINT_2 || id > ENDPOINT_5 ||
-	    target->sync_id_sending || !list_empty(&target->sync_queue)) {
+	if (target->sync_id_sending || !list_empty(&target->sync_queue)) {
 		return 1;
 	}
 
 	spin_lock_bh(&target->htc_txlock);
+    if (id >= ENDPOINT_2 && id <= ENDPOINT_5) {
+		for (eid = ENDPOINT_2; eid <= ENDPOINT_5; eid++) {
+			endpoint = &target->endpoint[eid];
+			tx_queue = &endpoint->tx_queue;
 
-	for (eid = ENDPOINT_2; eid <= ENDPOINT_5; eid++) {
-		endpoint = &target->endpoint[eid];
-		tx_queue = &endpoint->tx_queue;
-
-		if (list_empty(tx_queue)) {
-			ac_queue_status[eid - 2] = 1;
+			if (list_empty(tx_queue)) {
+				ac_queue_status[eid - 2] = 1;
+			}
 		}
-	}
-
+    }
 	spin_unlock_bh(&target->htc_txlock);
 
 	switch (id)
@@ -1320,7 +1323,7 @@ static int htc_send_pkts_sched_check(struct htc_pipe_target *target, enum htc_en
 		case ENDPOINT_5: //VO
 			return (1);
 		default:
-			ath6kl_err("incorrect epid (%d) while checking\n", id);
+			//ath6kl_err("incorrect epid (%d) while checking\n", id);
 			break;
 	}
 
@@ -1527,9 +1530,6 @@ static int htc_process_trailer(struct htc_pipe_target *target,
 			break;
 		}
 
-		if (status != 0)
-			break;
-
 		/* advance buffer past this record for next time around */
 		buffer += record->len;
 		len -= record->len;
@@ -1638,15 +1638,30 @@ static int htc_rx_completion(struct htc_target *context,
 	spin_lock_bh(&target->htc_rxlock);
 	if (target->rx_sg_in_progress) {
 		target->rx_sg_total_len_cur += netbuf->len;
-		skb_queue_tail(&target->rx_sg_q, netbuf);
 		if (target->rx_sg_total_len_cur == target->rx_sg_total_len_exp) {
+            skb_queue_tail(&target->rx_sg_q, netbuf);
 			netbuf = rx_sg_to_single_netbuf(target);
 			if (netbuf == NULL) {
 				spin_unlock_bh(&target->htc_rxlock);
 				goto free_netbuf;
 			}
 		}
+		else if (target->rx_sg_total_len_cur > target->rx_sg_total_len_exp) {
+		    struct sk_buff *skb;
+		    
+		    ath6kl_dbg(ATH6KL_DBG_HTC_PIPE,"%s: followed packet not as expected - total(%d) > exp(%d)\n",
+		        __func__, target->rx_sg_total_len_cur, target->rx_sg_total_len_exp);
+        	target->rx_sg_total_len_exp = 0;
+        	target->rx_sg_total_len_cur = 0;
+        	target->rx_sg_in_progress = false;
+		    while ((skb = skb_dequeue(&target->rx_sg_q))) {
+		        dev_kfree_skb(skb);
+	        }	        
+			spin_unlock_bh(&target->htc_rxlock);
+			goto free_netbuf;        	
+		}
 		else {
+		    skb_queue_tail(&target->rx_sg_q, netbuf);
 			netbuf = NULL;
 			spin_unlock_bh(&target->htc_rxlock);
 			goto free_netbuf;
@@ -1821,7 +1836,7 @@ void htc_flush_rx_queue(struct htc_pipe_target *target,
 /* polling routine to wait for a control packet to be received */
 int htc_wait_recv_ctrl_message(struct htc_pipe_target *target)
 {
-	int count = HTC_TARGET_MAX_RESPONSE_POLL;
+	int ret,count = HTC_TARGET_MAX_RESPONSE_POLL;
 
 	while (count > 0) {
 		spin_lock_bh(&target->htc_rxlock);
@@ -1839,7 +1854,7 @@ int htc_wait_recv_ctrl_message(struct htc_pipe_target *target)
 		count--;
 
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout((HZ / 1000) * (HTC_TARGET_RESPONSE_POLL_MS));
+		ret = schedule_timeout(msecs_to_jiffies(HTC_TARGET_RESPONSE_POLL_MS));
 		set_current_state(TASK_RUNNING);
 	}
 	if (count <= 0) {
@@ -1989,6 +2004,10 @@ int ath6kl_htc_conn_service(struct htc_target *handle,
 				 length,
 				 ENDPOINT_0, HTC_SERVICE_TX_PACKET_TAG);
 
+		conn_msg->msg_id = cpu_to_le16(conn_msg->msg_id);
+		conn_msg->svc_id = cpu_to_le16(conn_msg->svc_id);
+		conn_msg->conn_flags = cpu_to_le16(conn_msg->conn_flags);
+
 		status = ath6kl_htc_tx(handle, packet);
 		/* we don't own it anymore */
 		packet = NULL;
@@ -2005,6 +2024,10 @@ int ath6kl_htc_conn_service(struct htc_target *handle,
 		 */
 		resp_msg = (struct htc_conn_service_resp *)
 		    target->ctrl_response_buf;
+
+		resp_msg->msg_id = le16_to_cpu(resp_msg->msg_id);
+		resp_msg->svc_id = le16_to_cpu(resp_msg->svc_id);
+		resp_msg->max_msg_sz = le16_to_cpu(resp_msg->max_msg_sz);
 
 		if ((resp_msg->msg_id != HTC_MSG_CONN_SVC_RESP_ID)
 		    || (target->ctrl_response_len <
@@ -2239,6 +2262,9 @@ int ath6kl_htc_start(struct htc_target *handle)
 			 sizeof(struct htc_setup_comp_ext_msg),
 			 ENDPOINT_0, HTC_SERVICE_TX_PACKET_TAG);
 
+	setup_comp->msg_id = cpu_to_le16(setup_comp->msg_id);
+	setup_comp->flags = cpu_to_le32(setup_comp->flags);
+
 	return ath6kl_htc_tx(handle, packet);
 }
 
@@ -2323,6 +2349,10 @@ int ath6kl_htc_wait_target(struct htc_target *handle)
 	}
 	ready_msg =
 	    (struct htc_ready_ext_msg *)target->ctrl_response_buf;
+
+	ready_msg->ver2_0_info.msg_id = le16_to_cpu(ready_msg->ver2_0_info.msg_id);
+	ready_msg->ver2_0_info.cred_cnt = le16_to_cpu(ready_msg->ver2_0_info.cred_cnt);
+	ready_msg->ver2_0_info.cred_sz = le16_to_cpu(ready_msg->ver2_0_info.cred_sz);
 
 	if (ready_msg->ver2_0_info.msg_id != HTC_MSG_READY_ID) {
 		ath6kl_dbg(ATH6KL_DBG_HTC_PIPE,

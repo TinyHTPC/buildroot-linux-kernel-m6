@@ -60,6 +60,8 @@ static inline dma_addr_t skb_frag_dma_map(struct device *dev,
 
 #define ETH_P_TDLS	0x890D          /* TDLS */
 
+#else
+#define br_port_exists(dev)     (dev->priv_flags & IFF_BRIDGE_PORT)
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3,2,0)) */
 
 #endif /* LINUX_3_2_COMPAT_H */

@@ -282,6 +282,7 @@ void wiphy_update_regulatory(struct wiphy *wiphy,
 			     enum nl80211_reg_initiator setby);
 
 void cfg80211_bss_expire(struct cfg80211_registered_device *dev);
+void cfg80211_bss_flush(struct cfg80211_registered_device *dev);
 void cfg80211_bss_age(struct cfg80211_registered_device *dev,
                       unsigned long age_secs);
 

@@ -10,6 +10,9 @@
 #include <net/cfg80211.h>
 #include <net/ip.h>
 #include "core.h"
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0)) || defined(CE_CUSTOM_2) 
+#include <linux/module.h>
+#endif
 
 struct ieee80211_rate *
 ieee80211_get_response_rate_ath6kl(struct ieee80211_supported_band *sband,
@@ -50,7 +53,7 @@ int ieee80211_channel_to_frequency_ath6kl(int chan, enum ieee80211_band band)
 }
 EXPORT_SYMBOL(ieee80211_channel_to_frequency_ath6kl);
 
-int ieee80211_frequency_to_channel_ath6kl(int freq)
+int ieee80211_frequency_to_channel(int freq)
 {
 	/* see 802.11 17.3.8.3.2 and Annex J */
 	if (freq == 2484)
@@ -62,7 +65,7 @@ int ieee80211_frequency_to_channel_ath6kl(int freq)
 	else
 		return (freq - 5000) / 5;
 }
-EXPORT_SYMBOL(ieee80211_frequency_to_channel_ath6kl);
+EXPORT_SYMBOL(ieee80211_frequency_to_channel);
 
 struct ieee80211_channel *__ieee80211_get_channel_ath6kl(struct wiphy *wiphy,
 						  int freq)
@@ -86,6 +89,55 @@ struct ieee80211_channel *__ieee80211_get_channel_ath6kl(struct wiphy *wiphy,
 	return NULL;
 }
 EXPORT_SYMBOL(__ieee80211_get_channel_ath6kl);
+
+void ieee80211_acs_construct_chan_list(struct wiphy *wiphy,
+						  ieee80211_acs_t acs)
+{
+	enum ieee80211_band band;
+	struct ieee80211_supported_band *sband;
+	int i;
+
+    /* reset channel mapping array */
+    memset(&acs->acs_chan_maps, 0xff, sizeof(acs->acs_chan_maps));
+    acs->acs_nchans = 0;
+
+	for (band = 0; band < IEEE80211_NUM_BANDS; band++) {
+		sband = wiphy->bands[band];
+
+		if (!sband)
+			continue;
+
+		for (i = 0; i < sband->n_channels; i++) {
+			acs->acs_chan_maps[ieee80211_frequency_to_channel(sband->channels[i].center_freq)] = acs->acs_nchans;
+			acs->acs_chans[acs->acs_nchans++] = &sband->channels[i];
+		}
+	}
+}
+EXPORT_SYMBOL(ieee80211_acs_construct_chan_list);
+
+struct ieee80211_channel *ieee80211_is_support_band(struct wiphy *wiphy,
+						  int freq,enum ieee80211_band band)
+{
+	struct ieee80211_supported_band *sband;
+	int i;
+	enum ieee80211_band band_temp;
+	sband = wiphy->bands[band];
+	for (band_temp = 0; band_temp < IEEE80211_NUM_BANDS; band_temp++) {
+		sband = wiphy->bands[band_temp];
+		if (!sband)
+			return NULL;
+		if(band != IEEE80211_NUM_BANDS) {
+			if(band_temp != band)
+				continue;
+		} 
+		for (i = 0; i < sband->n_channels; i++) {
+			if (sband->channels[i].center_freq == freq)
+				return &sband->channels[i];
+		}
+	}
+	return NULL;
+}
+EXPORT_SYMBOL(ieee80211_is_support_band);
 
 static void set_mandatory_flags_band(struct ieee80211_supported_band *sband,
 				     enum ieee80211_band band)
@@ -237,9 +289,9 @@ int cfg80211_validate_key_settings(struct cfg80211_registered_device *rdev,
 
 /* See IEEE 802.1H for LLC/SNAP encapsulation/decapsulation */
 /* Ethernet-II snap header (RFC1042 for most EtherTypes) */
-const unsigned char rfc1042_header_ath6kl[] __aligned(2) =
+const unsigned char rfc1042_header[] __aligned(2) =
 	{ 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
-EXPORT_SYMBOL(rfc1042_header_ath6kl);
+EXPORT_SYMBOL(rfc1042_header);
 
 /* Bridge-Tunnel header (for EtherTypes ETH_P_AARP and ETH_P_IPX) */
 const unsigned char bridge_tunnel_header_ath6kl[] __aligned(2) =
@@ -403,7 +455,7 @@ int ieee80211_data_to_8023_ath6kl(struct sk_buff *skb, const u8 *addr,
 	payload = skb->data + hdrlen;
 	ethertype = (payload[6] << 8) | payload[7];
 
-	if (likely((compare_ether_addr(payload, rfc1042_header_ath6kl) == 0 &&
+	if (likely((compare_ether_addr(payload, rfc1042_header) == 0 &&
 		    ethertype != ETH_P_AARP && ethertype != ETH_P_IPX) ||
 		   compare_ether_addr(payload, bridge_tunnel_header_ath6kl) == 0)) {
 		/* remove RFC1042 or Bridge-Tunnel encapsulation and
@@ -494,8 +546,8 @@ int ieee80211_data_from_8023_ath6kl(struct sk_buff *skb, const u8 *addr,
 		encaps_len = sizeof(bridge_tunnel_header_ath6kl);
 		skip_header_bytes -= 2;
 	} else if (ethertype > 0x600) {
-		encaps_data = rfc1042_header_ath6kl;
-		encaps_len = sizeof(rfc1042_header_ath6kl);
+		encaps_data = rfc1042_header;
+		encaps_len = sizeof(rfc1042_header);
 		skip_header_bytes -= 2;
 	} else {
 		encaps_data = NULL;
@@ -615,7 +667,7 @@ void ieee80211_amsdu_to_8023s_ath6kl(struct sk_buff *skb, struct sk_buff_head *l
 		payload = frame->data;
 		ethertype = (payload[6] << 8) | payload[7];
 
-		if (likely((compare_ether_addr(payload, rfc1042_header_ath6kl) == 0 &&
+		if (likely((compare_ether_addr(payload, rfc1042_header) == 0 &&
 			    ethertype != ETH_P_AARP && ethertype != ETH_P_IPX) ||
 			   compare_ether_addr(payload,
 					      bridge_tunnel_header_ath6kl) == 0)) {
@@ -802,7 +854,8 @@ int cfg80211_change_iface(struct cfg80211_registered_device *rdev,
 		return -EOPNOTSUPP;
 
 	/* if it's part of a bridge, reject changing type to station/ibss */
-	if (br_port_exists(dev) &&
+	//if ((dev->priv_flags & IFF_BRIDGE_PORT) && //+FLUG
+	if (br_port_exists(dev) && //-FLUG
 	    (ntype == NL80211_IFTYPE_ADHOC ||
 	     ntype == NL80211_IFTYPE_STATION ||
 	     ntype == NL80211_IFTYPE_P2P_CLIENT))
@@ -1212,3 +1265,26 @@ u32 ieee802_11_parse_elems_crc(u8 *start, size_t len,
 	return crc;
 }
 EXPORT_SYMBOL(ieee802_11_parse_elems_crc);
+
+bool cfg80211_suspend_issue(struct net_device *dev, int suspend)
+{
+	struct wireless_dev *wdev = dev->ieee80211_ptr;
+	struct wiphy *wiphy = wdev->wiphy;
+	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
+	
+	if(suspend == 1)//go to suspend
+	{
+		if(rdev->ops->suspend) {
+			rdev->ops->suspend(&rdev->wiphy, rdev->wowlan);
+		}			
+	}
+	else if(suspend == 0)//go to resume
+	{
+		if(rdev->ops->resume) {
+			rdev->ops->resume(&rdev->wiphy);
+		}		
+	}
+	return true;
+}
+EXPORT_SYMBOL(cfg80211_suspend_issue);
+

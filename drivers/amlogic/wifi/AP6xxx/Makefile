@@ -11,8 +11,10 @@ DHDCFLAGS = -Wall -Wstrict-prototypes -Dlinux -DBCMDRIVER                \
 	-DWL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST -DSDIO_CRC_ERROR_FIX       \
 	-DESCAN_RESULT_PATCH -DHT40_GO -DPASS_ARP_PACKET -DSUPPORT_PM2_ONLY   \
 	-DDHD_DONOT_FORWARD_BCMEVENT_AS_NETWORK_PKT -DAMPDU_HOSTREORDER       \
-	-DCUSTOM_SDIO_F2_BLKSIZE=128 -DWL_SDO -DWL_SUPPORT_BACKPORTED_KPATCHES\
-	-Idrivers/amlogic/wifi/AP6xxx -Idrivers/amlogic/wifi/AP6xxx/include
+	-DCUSTOM_SDIO_F2_BLKSIZE=128 -DWL_SDO -DWLTDLS                        \
+	-DDISABLE_FW_ROAM_SUSPEND -DDISABLE_BUILTIN_ROAM                      \
+	-DWL_SUPPORT_BACKPORTED_KPATCHES                                      \
+        -Idrivers/amlogic/wifi/AP6xxx -Idrivers/amlogic/wifi/AP6xxx/include
 
 DHDOFILES = aiutils.o bcmsdh_sdmmc_linux.o dhd_linux.o siutils.o bcmutils.o   \
 	dhd_linux_sched.o dhd_sdio.o bcmwifi_channels.o bcmevent.o hndpmu.o   \
@@ -23,21 +25,22 @@ obj-$(CONFIG_SDIO_DHD_CDC_WIFI_AP6xxx_MODULE) += dhd.o
 dhd-objs += $(DHDOFILES)
 
 DHDCFLAGS += -DCUSTOMER_HW_AMLOGIC
-DHDCFLAGS += -DDISABLE_FW_ROAM_SUSPEND -DDISABLE_BUILTIN_ROAM
-
 ifeq ($(CONFIG_MACH_ODROID_4210),y)
 DHDOFILES += dhd_gpio.o
 DHDCFLAGS += -Iarch/arm/plat-samsung/include
 DHDCFLAGS += -DCUSTOMER_HW
-DHDCFLAGS += -DSET_RANDOM_MAC_SOFTAP
-DHDCFLAGS += -DDISABLE_FW_ROAM_SUSPEND -DDISABLE_BUILTIN_ROAM
+#DHDCFLAGS += -DBCMWAPI_WPI -DBCMWAPI_WAI
 endif
 
-ifeq ($(CONFIG_BCMDHD_OOB),y)
+ifeq ($(CONFIG_BCMDHD_OOB_AP6xxx),y)
 DHDCFLAGS += -DOOB_INTR_ONLY -DHW_OOB
 DHDCFLAGS += -DCUSTOM_OOB_GPIO_NUM=INT_GPIO_4
 else
 DHDCFLAGS += -DSDIO_ISR_THREAD
+endif
+
+ifeq ($(CONFIG_BCMDHD_AG),y)
+	DHDCFLAGS += -DBAND_AG
 endif
 
 ifneq ($(CONFIG_WIRELESS_EXT),)

@@ -9,6 +9,11 @@
 #endif
 #include <linux/compat_autoconf.h>
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0))
+#include <linux/kconfig.h>
+#endif
+
+
 /*
  * Each compat file represents compatibility code for new kernel
  * code introduced for *that* kernel revision.

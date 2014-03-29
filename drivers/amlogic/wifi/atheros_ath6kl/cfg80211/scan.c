@@ -87,7 +87,7 @@ void __cfg80211_scan_done(struct work_struct *wk)
 
 void cfg80211_scan_done_ath6kl(struct cfg80211_scan_request *request, bool aborted)
 {
-	WARN_ON(request != wiphy_to_dev(request->wiphy)->scan_req);
+	//WARN_ON(request != wiphy_to_dev(request->wiphy)->scan_req);
 
 	request->aborted = aborted;
 	schedule_work(&wiphy_to_dev(request->wiphy)->scan_done_wk);
@@ -111,16 +111,16 @@ void __cfg80211_sched_scan_results(struct work_struct *wk)
 	mutex_unlock(&rdev->sched_scan_mtx);
 }
 
-void cfg80211_sched_scan_results(struct wiphy *wiphy)
+void cfg80211_sched_scan_results_ath6kl(struct wiphy *wiphy)
 {
 	/* ignore if we're not scanning */
 	if (wiphy_to_dev(wiphy)->sched_scan_req)
 		schedule_work(
 			   &wiphy_to_dev(wiphy)->sched_scan_results_wk);
 }
-EXPORT_SYMBOL(cfg80211_sched_scan_results);
+EXPORT_SYMBOL(cfg80211_sched_scan_results_ath6kl);
 
-void cfg80211_sched_scan_stopped(struct wiphy *wiphy)
+void cfg80211_sched_scan_stopped_ath6kl(struct wiphy *wiphy)
 {
 	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
 
@@ -128,7 +128,7 @@ void cfg80211_sched_scan_stopped(struct wiphy *wiphy)
 	__cfg80211_stop_sched_scan(rdev, true);
 	mutex_unlock(&rdev->sched_scan_mtx);
 }
-EXPORT_SYMBOL(cfg80211_sched_scan_stopped);
+EXPORT_SYMBOL(cfg80211_sched_scan_stopped_ath6kl);
 
 int __cfg80211_stop_sched_scan(struct cfg80211_registered_device *rdev,
 			       bool driver_initiated)
@@ -206,6 +206,25 @@ void cfg80211_bss_expire(struct cfg80211_registered_device *dev)
 			continue;
 		if (!time_after(jiffies, bss->ts + IEEE80211_SCAN_RESULT_EXPIRE))
 			continue;
+		__cfg80211_unlink_bss(dev, bss);
+		expired = true;
+	}
+
+	if (expired)
+		dev->bss_generation++;
+}
+
+void cfg80211_bss_flush(struct cfg80211_registered_device *dev)
+{
+	struct cfg80211_internal_bss *bss, *tmp;
+	bool expired = false;
+
+	list_for_each_entry_safe(bss, tmp, &dev->bss_list, list) {
+		if (atomic_read(&bss->hold)) {
+			printk("%s[%d]\n\r",__func__,__LINE__);
+			continue;
+		}
+		//printk("%s[%d]\n\r",__func__,__LINE__);
 		__cfg80211_unlink_bss(dev, bss);
 		expired = true;
 	}
@@ -756,7 +775,7 @@ void cfg80211_unlink_bss_ath6kl(struct wiphy *wiphy, struct cfg80211_bss *pub)
 EXPORT_SYMBOL(cfg80211_unlink_bss_ath6kl);
 
 #ifdef CONFIG_CFG80211_WEXT
-int cfg80211_wext_siwscan_ath6kl(struct net_device *dev,
+int cfg80211_wext_siwscan(struct net_device *dev,
 			  struct iw_request_info *info,
 			  union iwreq_data *wrqu, char *extra)
 {
@@ -887,7 +906,7 @@ int cfg80211_wext_siwscan_ath6kl(struct net_device *dev,
 	cfg80211_unlock_rdev(rdev);
 	return err;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_siwscan_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_siwscan);
 
 static void ieee80211_scan_add_ies(struct iw_request_info *info,
 				   struct cfg80211_bss *bss,
@@ -960,7 +979,7 @@ ieee80211_bss(struct wiphy *wiphy, struct iw_request_info *info,
 
 	memset(&iwe, 0, sizeof(iwe));
 	iwe.cmd = SIOCGIWFREQ;
-	iwe.u.freq.m = ieee80211_frequency_to_channel_ath6kl(bss->pub.channel->center_freq);
+	iwe.u.freq.m = ieee80211_frequency_to_channel(bss->pub.channel->center_freq);
 	iwe.u.freq.e = 0;
 	current_ev = iwe_stream_add_event(info, current_ev, end_buf, &iwe,
 					  IW_EV_FREQ_LEN);
@@ -1170,7 +1189,7 @@ static int ieee80211_scan_results(struct cfg80211_registered_device *dev,
 }
 
 
-int cfg80211_wext_giwscan_ath6kl(struct net_device *dev,
+int cfg80211_wext_giwscan(struct net_device *dev,
 			  struct iw_request_info *info,
 			  struct iw_point *data, char *extra)
 {
@@ -1201,5 +1220,5 @@ int cfg80211_wext_giwscan_ath6kl(struct net_device *dev,
 	cfg80211_unlock_rdev(rdev);
 	return res;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_giwscan_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_giwscan);
 #endif

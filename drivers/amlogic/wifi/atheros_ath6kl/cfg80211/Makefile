@@ -1,13 +1,6 @@
+NOSTDINC_FLAGS := -include ${ATH_DRIVER_TOPDIR}/include/linux/compat-2.6.h -I${ATH_DRIVER_TOPDIR}/include/ $(ATH_LOCAL_CFLAGS)
 obj-$(CONFIG_CFG80211) += cfg80211_ath6kl.o
-obj-$(CONFIG_LIB80211) += lib80211.o
-obj-$(CONFIG_LIB80211_CRYPT_WEP) += lib80211_crypt_wep.o
-obj-$(CONFIG_LIB80211_CRYPT_CCMP) += lib80211_crypt_ccmp.o
-obj-$(CONFIG_LIB80211_CRYPT_TKIP) += lib80211_crypt_tkip.o
 
-obj-$(CONFIG_WEXT_CORE) += wext-core.o
-obj-$(CONFIG_WEXT_PROC) += wext-proc.o
-obj-$(CONFIG_WEXT_SPY) += wext-spy.o
-obj-$(CONFIG_WEXT_PRIV) += wext-priv.o
 
 cfg80211_ath6kl-y += core.o sysfs.o radiotap.o util.o reg.o scan.o nl80211.o
 cfg80211_ath6kl-y += mlme.o ibss.o sme.o chan.o ethtool.o mesh.o
@@ -17,7 +10,4 @@ cfg80211_ath6kl-$(CONFIG_CFG80211_INTERNAL_REGDB) += regdb.o
 
 ccflags-y += -D__CHECK_ENDIAN__
 
-$(obj)/regdb.c: $(src)/db.txt $(src)/genregdb.awk
-	@$(AWK) -f $(src)/genregdb.awk < $< > $@
 
-clean-files := regdb.c

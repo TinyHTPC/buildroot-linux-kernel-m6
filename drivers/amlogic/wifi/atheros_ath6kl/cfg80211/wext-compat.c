@@ -19,7 +19,7 @@
 #include "wext-compat.h"
 #include "core.h"
 
-int cfg80211_wext_giwname_ath6kl(struct net_device *dev,
+int cfg80211_wext_giwname(struct net_device *dev,
 			  struct iw_request_info *info,
 			  char *name, char *extra)
 {
@@ -61,9 +61,9 @@ int cfg80211_wext_giwname_ath6kl(struct net_device *dev,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_giwname_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_giwname);
 
-int cfg80211_wext_siwmode_ath6kl(struct net_device *dev, struct iw_request_info *info,
+int cfg80211_wext_siwmode(struct net_device *dev, struct iw_request_info *info,
 			  u32 *mode, char *extra)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -102,9 +102,9 @@ int cfg80211_wext_siwmode_ath6kl(struct net_device *dev, struct iw_request_info 
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_siwmode_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_siwmode);
 
-int cfg80211_wext_giwmode_ath6kl(struct net_device *dev, struct iw_request_info *info,
+int cfg80211_wext_giwmode(struct net_device *dev, struct iw_request_info *info,
 			  u32 *mode, char *extra)
 {
 	struct wireless_dev *wdev = dev->ieee80211_ptr;
@@ -137,10 +137,10 @@ int cfg80211_wext_giwmode_ath6kl(struct net_device *dev, struct iw_request_info 
 	}
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_giwmode_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_giwmode);
 
 
-int cfg80211_wext_giwrange_ath6kl(struct net_device *dev,
+int cfg80211_wext_giwrange(struct net_device *dev,
 			   struct iw_request_info *info,
 			   struct iw_point *data, char *extra)
 {
@@ -231,7 +231,7 @@ int cfg80211_wext_giwrange_ath6kl(struct net_device *dev,
 
 			if (!(chan->flags & IEEE80211_CHAN_DISABLED)) {
 				range->freq[c].i =
-					ieee80211_frequency_to_channel_ath6kl(
+					ieee80211_frequency_to_channel(
 						chan->center_freq);
 				range->freq[c].m = chan->center_freq;
 				range->freq[c].e = 6;
@@ -251,7 +251,7 @@ int cfg80211_wext_giwrange_ath6kl(struct net_device *dev,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_giwrange_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_giwrange);
 
 
 /**
@@ -284,7 +284,7 @@ int cfg80211_wext_freq(struct wiphy *wiphy, struct iw_freq *freq)
 	}
 }
 
-int cfg80211_wext_siwrts_ath6kl(struct net_device *dev,
+int cfg80211_wext_siwrts(struct net_device *dev,
 			 struct iw_request_info *info,
 			 struct iw_param *rts, char *extra)
 {
@@ -307,9 +307,9 @@ int cfg80211_wext_siwrts_ath6kl(struct net_device *dev,
 
 	return err;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_siwrts_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_siwrts);
 
-int cfg80211_wext_giwrts_ath6kl(struct net_device *dev,
+int cfg80211_wext_giwrts(struct net_device *dev,
 			 struct iw_request_info *info,
 			 struct iw_param *rts, char *extra)
 {
@@ -321,9 +321,9 @@ int cfg80211_wext_giwrts_ath6kl(struct net_device *dev,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_giwrts_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_giwrts);
 
-int cfg80211_wext_siwfrag_ath6kl(struct net_device *dev,
+int cfg80211_wext_siwfrag(struct net_device *dev,
 			  struct iw_request_info *info,
 			  struct iw_param *frag, char *extra)
 {
@@ -348,9 +348,9 @@ int cfg80211_wext_siwfrag_ath6kl(struct net_device *dev,
 
 	return err;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_siwfrag_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_siwfrag);
 
-int cfg80211_wext_giwfrag_ath6kl(struct net_device *dev,
+int cfg80211_wext_giwfrag(struct net_device *dev,
 			  struct iw_request_info *info,
 			  struct iw_param *frag, char *extra)
 {
@@ -362,7 +362,7 @@ int cfg80211_wext_giwfrag_ath6kl(struct net_device *dev,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_giwfrag_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_giwfrag);
 
 static int cfg80211_wext_siwretry(struct net_device *dev,
 				  struct iw_request_info *info,
@@ -404,7 +404,7 @@ static int cfg80211_wext_siwretry(struct net_device *dev,
 	return err;
 }
 
-int cfg80211_wext_giwretry_ath6kl(struct net_device *dev,
+int cfg80211_wext_giwretry(struct net_device *dev,
 			   struct iw_request_info *info,
 			   struct iw_param *retry, char *extra)
 {
@@ -432,7 +432,7 @@ int cfg80211_wext_giwretry_ath6kl(struct net_device *dev,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cfg80211_wext_giwretry_ath6kl);
+EXPORT_SYMBOL_GPL(cfg80211_wext_giwretry);
 
 static int __cfg80211_set_encryption(struct cfg80211_registered_device *rdev,
 				     struct net_device *dev, bool pairwise,
@@ -1477,29 +1477,29 @@ static int cfg80211_wext_siwpmksa(struct net_device *dev,
 }
 
 static const iw_handler cfg80211_handlers[] = {
-	[IW_IOCTL_IDX(SIOCGIWNAME)]	= (iw_handler) cfg80211_wext_giwname_ath6kl,
+	[IW_IOCTL_IDX(SIOCGIWNAME)]	= (iw_handler) cfg80211_wext_giwname,
 	[IW_IOCTL_IDX(SIOCSIWFREQ)]	= (iw_handler) cfg80211_wext_siwfreq,
 	[IW_IOCTL_IDX(SIOCGIWFREQ)]	= (iw_handler) cfg80211_wext_giwfreq,
-	[IW_IOCTL_IDX(SIOCSIWMODE)]	= (iw_handler) cfg80211_wext_siwmode_ath6kl,
-	[IW_IOCTL_IDX(SIOCGIWMODE)]	= (iw_handler) cfg80211_wext_giwmode_ath6kl,
-	[IW_IOCTL_IDX(SIOCGIWRANGE)]	= (iw_handler) cfg80211_wext_giwrange_ath6kl,
+	[IW_IOCTL_IDX(SIOCSIWMODE)]	= (iw_handler) cfg80211_wext_siwmode,
+	[IW_IOCTL_IDX(SIOCGIWMODE)]	= (iw_handler) cfg80211_wext_giwmode,
+	[IW_IOCTL_IDX(SIOCGIWRANGE)]	= (iw_handler) cfg80211_wext_giwrange,
 	[IW_IOCTL_IDX(SIOCSIWAP)]	= (iw_handler) cfg80211_wext_siwap,
 	[IW_IOCTL_IDX(SIOCGIWAP)]	= (iw_handler) cfg80211_wext_giwap,
 	[IW_IOCTL_IDX(SIOCSIWMLME)]	= (iw_handler) cfg80211_wext_siwmlme,
-	[IW_IOCTL_IDX(SIOCSIWSCAN)]	= (iw_handler) cfg80211_wext_siwscan_ath6kl,
-	[IW_IOCTL_IDX(SIOCGIWSCAN)]	= (iw_handler) cfg80211_wext_giwscan_ath6kl,
+	[IW_IOCTL_IDX(SIOCSIWSCAN)]	= (iw_handler) cfg80211_wext_siwscan,
+	[IW_IOCTL_IDX(SIOCGIWSCAN)]	= (iw_handler) cfg80211_wext_giwscan,
 	[IW_IOCTL_IDX(SIOCSIWESSID)]	= (iw_handler) cfg80211_wext_siwessid,
 	[IW_IOCTL_IDX(SIOCGIWESSID)]	= (iw_handler) cfg80211_wext_giwessid,
 	[IW_IOCTL_IDX(SIOCSIWRATE)]	= (iw_handler) cfg80211_wext_siwrate,
 	[IW_IOCTL_IDX(SIOCGIWRATE)]	= (iw_handler) cfg80211_wext_giwrate,
-	[IW_IOCTL_IDX(SIOCSIWRTS)]	= (iw_handler) cfg80211_wext_siwrts_ath6kl,
-	[IW_IOCTL_IDX(SIOCGIWRTS)]	= (iw_handler) cfg80211_wext_giwrts_ath6kl,
-	[IW_IOCTL_IDX(SIOCSIWFRAG)]	= (iw_handler) cfg80211_wext_siwfrag_ath6kl,
-	[IW_IOCTL_IDX(SIOCGIWFRAG)]	= (iw_handler) cfg80211_wext_giwfrag_ath6kl,
+	[IW_IOCTL_IDX(SIOCSIWRTS)]	= (iw_handler) cfg80211_wext_siwrts,
+	[IW_IOCTL_IDX(SIOCGIWRTS)]	= (iw_handler) cfg80211_wext_giwrts,
+	[IW_IOCTL_IDX(SIOCSIWFRAG)]	= (iw_handler) cfg80211_wext_siwfrag,
+	[IW_IOCTL_IDX(SIOCGIWFRAG)]	= (iw_handler) cfg80211_wext_giwfrag,
 	[IW_IOCTL_IDX(SIOCSIWTXPOW)]	= (iw_handler) cfg80211_wext_siwtxpower,
 	[IW_IOCTL_IDX(SIOCGIWTXPOW)]	= (iw_handler) cfg80211_wext_giwtxpower,
 	[IW_IOCTL_IDX(SIOCSIWRETRY)]	= (iw_handler) cfg80211_wext_siwretry,
-	[IW_IOCTL_IDX(SIOCGIWRETRY)]	= (iw_handler) cfg80211_wext_giwretry_ath6kl,
+	[IW_IOCTL_IDX(SIOCGIWRETRY)]	= (iw_handler) cfg80211_wext_giwretry,
 	[IW_IOCTL_IDX(SIOCSIWENCODE)]	= (iw_handler) cfg80211_wext_siwencode,
 	[IW_IOCTL_IDX(SIOCGIWENCODE)]	= (iw_handler) cfg80211_wext_giwencode,
 	[IW_IOCTL_IDX(SIOCSIWPOWER)]	= (iw_handler) cfg80211_wext_siwpower,
