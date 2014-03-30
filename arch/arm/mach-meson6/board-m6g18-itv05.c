@@ -220,7 +220,11 @@
 #define PPMGR_ADDR_START	U_ALIGN(DI_ADDR_END)
 #define PPMGR_ADDR_END		(PPMGR_ADDR_START+PPMGR_MEM_SIZE-1)
 
+#ifdef CONFIG_AM_MEMPROTECT
+#define STREAMBUF_MEM_SIZE          (SZ_1M*3)
+#else
 #define STREAMBUF_MEM_SIZE          (SZ_1M*10)
+#endif
 #define STREAMBUF_ADDR_START        U_ALIGN(PPMGR_ADDR_END)
 #define STREAMBUF_ADDR_END      (STREAMBUF_ADDR_START+STREAMBUF_MEM_SIZE-1)
 
@@ -252,6 +256,16 @@ static struct resource meson_codec_resource[] = {
     },
 };
 
+#ifdef CONFIG_AML_VIDEO_RES_MGR
+static struct resource resmgr_resources[] = {
+    [0] = {
+        .start = CODEC_ADDR_START,
+        .end   = CODEC_ADDR_END,
+        .flags = IORESOURCE_MEM,
+    },
+};
+#endif
+
 #ifdef CONFIG_POST_PROCESS_MANAGER
 static struct resource ppmgr_resources[] = {
     [0] = {
@@ -268,6 +282,15 @@ static struct platform_device ppmgr_device = {
     .resource      = ppmgr_resources,
 };
 #endif
+
+#ifdef CONFIG_AML_VIDEO_RES_MGR
+static struct platform_device resmgr_device = {
+    .name       = "resmgr",
+    .id         = 0,
+    .num_resources = ARRAY_SIZE(resmgr_resources),
+    .resource      = resmgr_resources,
+};
+#endif //CONFIG_AML_VIDEO_RES_MGR
 
 #ifdef CONFIG_FREE_SCALE
 static struct resource freescale_resources[] = {
@@ -306,6 +329,24 @@ static struct platform_device vdin_device = {
     .id         = 0,
     .num_resources = ARRAY_SIZE(vdin_resources),
     .resource      = vdin_resources,
+};
+#endif
+
+#if defined (CONFIG_AMLOGIC_VIDEOIN_MANAGER)
+static struct resource vm_resources[] = {
+    [0] = {
+        .start = VM_ADDR_START,
+        .end   = VM_ADDR_END,
+        .flags = IORESOURCE_MEM,
+    },
+};
+
+static struct platform_device vm_device =
+{
+    .name = "vm",
+    .id = 0,
+    .num_resources = ARRAY_SIZE(vm_resources),
+    .resource      = vm_resources,
 };
 #endif
 
@@ -563,7 +604,7 @@ static struct aml_uart_platform  __initdata aml_uart_plat = {
     .pinmux_uart[4] = NULL
 };
 
-static struct platform_device aml_uart_device __refdata = {
+static struct platform_device aml_uart_device = {
     .name       = "mesonuart",
     .id     = -1,
     .num_resources  = 0,
@@ -2055,6 +2096,8 @@ static struct resource amlogic_dvb_resource[]  = {
 static int dvb_io_setup(void *p)
 {
 	printk(KERN_ERR "dvb_io_setup start\n");
+
+#if !defined (CONFIG_AMLOGIC_DYNAMIC_FEANDDMX_CONFIG)	
 	{/*FEC_B*/
 		static pinmux_item_t fec_pins[] = {
 		    {
@@ -2077,6 +2120,8 @@ static int dvb_io_setup(void *p)
 		};
 		pinmux_set(&fec_pinmux_set);
 	}
+#endif
+	
 #if 1
 	{
 #if 0	
@@ -2346,6 +2391,60 @@ static  struct platform_device lgs9xb1_device = {
 };
 #endif//CONFIG_AM_LGS9XB1
 
+#ifdef CONFIG_AM_SI2168
+static struct resource si2168_resource[]  = {
+
+	[0] = {
+		.start = 0,                                    //frontend  i2c adapter id
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "frontend0_i2c"
+	},
+	[1] = {
+		.start = 0x38,                                 //frontend 0 demod address
+		.end   = 0x38,
+		.flags = IORESOURCE_MEM,
+		.name  = "frontend0_demod_addr"
+	},
+	[2] = {
+		.start = PAD_GPIOD_8, //reset pin
+		.end  = PAD_GPIOD_8,
+		.flags = IORESOURCE_MEM,
+		.name  = "frontend0_reset_pin"
+	},
+	[3] = {
+		.start = 0, //reset enable value
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "frontend0_reset_value_enable"
+	},
+	[4] = {
+		.start = 0xce,                                 
+		.end   = 0xce,
+		.flags = IORESOURCE_MEM,
+		.name  = "frontend0_tuner_addr"
+	},
+    [5] = {
+            .start = PAD_GPIOD_4,  
+            .end   = PAD_GPIOD_4,
+            .flags = IORESOURCE_MEM,
+            .name  = "frontend0_POWERON/OFF"
+    },   
+    [6] = {
+            .start = PAD_GPIOD_3,  
+            .end   = PAD_GPIOD_3,
+            .flags = IORESOURCE_MEM,
+            .name  = "frontend0_ANTOVERLOAD"
+    },       
+};
+
+static  struct platform_device si2168_device = {
+	.name             = "si2168",
+	.id               = -1,
+	.num_resources    = ARRAY_SIZE(si2168_resource),
+	.resource         = si2168_resource,
+};
+#endif//CONFIG_AM_SI2168
 #else //!CONFIG_AM_NEW_TV_ARCH
 
 static struct resource amlogic_dvb_fe_resource[]  = {
@@ -2399,6 +2498,237 @@ static struct resource amlogic_dvb_fe_resource[]  = {
 		.name  = "fe0_dev"
 	},	
 #endif	
+#if (defined CONFIG_AM_AVL6211)
+	[0] = {
+		.start = 4,                                 //DTV demod: M1=0, SI2176=1, MXL101=2, AVL6211=4
+		.end   = 4,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0"
+	},
+	[1] = {
+		.start = 0,                                 //i2c adapter id
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_i2c_adap_id"
+	},
+	[2] = {
+		.start = 0xC0,                              //i2c address
+		.end   = 0xC0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_i2c_addr"
+	},
+	[3] = {
+		.start = 0,                                 //reset value
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_reset_value"
+	},
+	[4] = {
+		.start = PAD_GPIOD_8, //reset pin
+		.end   = PAD_GPIOD_8,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_reset_gpio"
+	},
+	[5] = {
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_dtv_demod"
+	},
+	[6] = {
+		.start = 2,
+		.end   = 2,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_ts"
+	},
+	[7] = {
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_dev"
+	},
+	/*in mx public not need, this is add for sync for m3*/
+	[8] = {
+		.start = 0,	 //is avl6211
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_tunerpower"
+	},
+	[9] = {
+		.start = 0,	//DVBS2 LNBON/OFF pin
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_lnbpower"
+	},	
+	[10] = {
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_antoverload"
+	},		
+#endif
+#if (defined CONFIG_AM_SI2168)
+	[0] = {
+		.start = 5,                                 //DTV demod: M1=0, SI2176=1, MXL101=2,AVL6211=4,SI2168=5;
+		.end   = 5,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0"
+	},
+	[1] = {
+		.start = 0,                                 //i2c adapter id
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_i2c_adap_id"
+	},
+	[2] = {
+		.start = 0x64,                              //i2c address
+		.end   = 0x64,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_i2c_addr"
+	},
+	[3] = {
+		.start = 0,                                 //reset value
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_reset_value"
+	},
+	[4] = {
+		.start = PAD_GPIOD_8, //reset pin
+		.end   = PAD_GPIOD_8,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_reset_gpio"
+	},
+	[5] = {
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_dtv_demod"
+	},
+	[6] = {
+		.start = 2,
+		.end   = 2,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_ts"
+	},
+	[7] = {
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_dev"
+	},	
+#endif
+
+#if (defined CONFIG_AM_ITE9133)
+
+	[0] = {
+		.start = 6,                                 //DTV demod: M1=0, SI2176=1, MXL101=2,AVL6211=4,SI2168=5.ite9133=6;
+		.end   = 6,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0"
+	},
+	[1] = {
+		.start = 0,                                 //i2c adapter id
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_i2c_adap_id"
+	},
+	[2] = {
+		.start = 0x9E,                              //i2c address
+		.end   = 0x9E,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_i2c_addr"
+	},
+	[3] = {
+		.start = 0,                                 //reset value
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_reset_value"
+	},
+	[4] = {
+		.start = PAD_GPIOD_8, //reset pin
+		.end   = PAD_GPIOD_8,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_reset_gpio"
+	},
+	[5] = {
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_dtv_demod"
+	},
+	[6] = {
+		.start = 2,
+		.end   = 2,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_ts"
+	},
+	[7] = {
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_dev"
+	},	
+#endif
+
+#if (defined CONFIG_AM_ITE9173)
+
+	[0] = {
+		.start = 7,                                 //DTV demod: M1=0, SI2176=1, MXL101=2,AVL6211=4,SI2168=5.ite9133=6;ite9173=7;
+		.end   = 7,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0"
+	},
+	[1] = {
+		.start = 0,                                 //i2c adapter id
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_i2c_adap_id"
+	},
+	[2] = {
+		.start = 0x9E,                              //i2c address
+		.end   = 0x9E,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_i2c_addr"
+	},
+	[3] = {
+		.start = 0,                                 //reset value
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_reset_value"
+	},
+	[4] = {
+		.start = PAD_GPIOD_8, //reset pin
+		.end   = PAD_GPIOD_8,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_reset_gpio"
+	},
+	[5] = {
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_dtv_demod"
+	},
+	[6] = {
+		.start = 2,
+		.end   = 2,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_ts"
+	},
+	[7] = {
+		.start = 0,
+		.end   = 0,
+		.flags = IORESOURCE_MEM,
+		.name  = "fe0_dev"
+	},
+	[8] = {
+		.start = PAD_GPIOD_6,
+		.end   = PAD_GPIOD_6,
+		.flags = IORESOURCE_MEM,
+		.name  = "dtv_demod0_tunerpower"
+	},	
+#endif
+
+
 };
 
 static  struct platform_device amlogic_dvb_fe_device = {
@@ -2623,6 +2953,10 @@ static struct platform_device  *platform_devs[] = {
 #if defined(CONFIG_TVIN_VDIN)
     &vdin_device,
 #endif
+
+#ifdef CONFIG_AMLOGIC_VIDEOIN_MANAGER
+    &vm_device,
+#endif
 #ifdef CONFIG_SARADC_AM
         &saradc_device,
 #endif
@@ -2693,6 +3027,9 @@ static struct platform_device  *platform_devs[] = {
 #ifdef CONFIG_AM_DIB7090P
 	&dib7090p_device,
 #endif
+#ifdef CONFIG_AM_SI2168
+	&si2168_device,
+#endif
 #endif
 #endif
 
@@ -2712,6 +3049,9 @@ static struct platform_device  *platform_devs[] = {
 #endif
 #if defined(CONFIG_AML_EMMC_KEY) || defined(CONFIG_AML_NAND_KEY)
 	&aml_keys_device,
+#endif
+#ifdef CONFIG_AML_VIDEO_RES_MGR
+	&resmgr_device,
 #endif
 };
 

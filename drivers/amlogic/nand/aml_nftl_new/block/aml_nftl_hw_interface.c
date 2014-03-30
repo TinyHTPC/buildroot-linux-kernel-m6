@@ -56,7 +56,7 @@ int nand_read_page(struct aml_nftl_part_t *part,_physic_op_par *p)
 	struct mtd_oob_ops aml_oob_ops;
 	loff_t from;
 	size_t len, retlen;
-	int ret;
+	int ret = 0;
 
 	from = mtd->erasesize;
 	from *= p->phy_page.blkNO_in_chip;
@@ -65,6 +65,9 @@ int nand_read_page(struct aml_nftl_part_t *part,_physic_op_par *p)
 	len = mtd->writesize;
 	aml_oob_ops.mode = MTD_OOB_AUTO;
 	aml_oob_ops.len = mtd->writesize;
+	if(mtd->writesize <4096)
+	aml_oob_ops.ooblen = 8;	
+	else	
 	aml_oob_ops.ooblen = BYTES_OF_USER_PER_PAGE;
 	aml_oob_ops.ooboffs = mtd->ecclayout->oobfree[0].offset;
 	aml_oob_ops.datbuf = p->main_data_addr;
@@ -86,7 +89,7 @@ int nand_read_page(struct aml_nftl_part_t *part,_physic_op_par *p)
 	}
 
 	if ((ret!=0) &&(ret != -EUCLEAN))
-		PRINT("aml_ops_read_page failed: %llx %d %d\n", from, p->phy_page.blkNO_in_chip, p->phy_page.Page_NO);
+		PRINT("aml_ops_read_page failed: %llx %d %d \n", from, p->phy_page.blkNO_in_chip, p->phy_page.Page_NO);
 
 	return ret;
 }
@@ -114,6 +117,9 @@ int nand_write_page(struct aml_nftl_part_t *part,_physic_op_par *p)
 	len = mtd->writesize;
 	aml_oob_ops.mode = MTD_OOB_AUTO;
 	aml_oob_ops.len = mtd->writesize;
+	if(mtd->writesize <4096)
+	aml_oob_ops.ooblen = 8;	
+	else	
 	aml_oob_ops.ooblen = BYTES_OF_USER_PER_PAGE;
 	aml_oob_ops.ooboffs = mtd->ecclayout->oobfree[0].offset;
 	aml_oob_ops.datbuf = p->main_data_addr;
