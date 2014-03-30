@@ -40,6 +40,7 @@ typedef enum {
     MOD_SDIO,
     MOD_VI_CORE,
     MOD_LED_PWM,
+    MOD_VDAC,
     MOD_MAX_NUM,
 }mod_type_t;
 
