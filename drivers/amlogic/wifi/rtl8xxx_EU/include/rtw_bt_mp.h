@@ -261,6 +261,7 @@ typedef struct _BT_EXT_C2H{
 	u1Byte	buf[100];
 }BT_EXT_C2H, *PBT_EXT_C2H;
 
+
 typedef enum _BT_OPCODE_STATUS{
 	BT_OP_STATUS_SUCCESS									= 0x00, // Success
 	BT_OP_STATUS_VERSION_MISMATCH							= 0x01,	
@@ -268,6 +269,7 @@ typedef enum _BT_OPCODE_STATUS{
 	BT_OP_STATUS_ERROR_PARAMETER							= 0x03,
 	BT_OP_STATUS_MAX
 }BT_OPCODE_STATUS,*PBT_OPCODE_STATUS;
+
 
 
 //OP codes definition between driver and bt fw

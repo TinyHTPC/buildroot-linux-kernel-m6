@@ -48,13 +48,13 @@ SwLedOn(
 )
 {
 	u8	LedCfg;
-	//HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(padapter);
+	HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(padapter);
 
 	if( (padapter->bSurpriseRemoved == _TRUE) || ( padapter->bDriverStopped == _TRUE))
 	{
 		return;
 	}
-
+	#if 0
 	LedCfg = rtw_read8(padapter, REG_LEDCFG2);
 	switch(pLed->LedPin)
 	{	
@@ -69,7 +69,38 @@ SwLedOn(
 		default:
 			break;
 	}
-	
+	#else
+	switch(pLed->LedPin)
+	{	
+		case LED_PIN_GPIO0:
+			break;
+
+		case LED_PIN_LED0:
+			if(pHalData->AntDivCfg==0)
+			{
+				LedCfg = rtw_read8(padapter, REG_LEDCFG0);
+				rtw_write8(padapter, REG_LEDCFG0, LedCfg&0x70); // SW control led0 on.
+				//RT_TRACE(COMP_LED, DBG_LOUD, ("SwLedOn LED0 0x%x\n", PlatformEFIORead4Byte(Adapter, REG_LEDCFG0)));
+			}
+			else
+			{
+				LedCfg = rtw_read8(padapter, REG_LEDCFG2);
+				rtw_write8(padapter, REG_LEDCFG2, (LedCfg&0xe0)|BIT7|BIT6|BIT5); // SW control led0 on.
+				//RT_TRACE(COMP_LED, DBG_LOUD, ("SwLedOn LED0 0x%x\n", PlatformEFIORead4Byte(Adapter, REG_LEDCFG2)));
+			}
+			break;
+
+		case LED_PIN_LED1:
+			LedCfg = rtw_read8(padapter, REG_LEDCFG2);
+			LedCfg &= 0xd0; // Set to software control. 			
+			rtw_write8(padapter, REG_LEDCFG2, (LedCfg|BIT5));
+			//RT_TRACE(COMP_LED, DBG_LOUD, ("SwLedOn LED1 0x%x\n", PlatformEFIORead4Byte(Adapter, REG_LEDCFG0)));
+			break;
+
+		default:
+			break;
+	}
+	#endif
 	pLed->bLedOn = _TRUE;
 }
 
@@ -94,7 +125,7 @@ SwLedOff(
 
 
 	LedCfg = rtw_read8(padapter, REG_LEDCFG2);//0x4E
-
+	#if 0
 	switch(pLed->LedPin)
 	{
 		case LED_PIN_LED0:
@@ -120,6 +151,41 @@ SwLedOff(
 		default:
 			break;
 	}
+	#else
+	switch(pLed->LedPin)
+	{
+		case LED_PIN_GPIO0:
+			break;
+
+		case LED_PIN_LED0:
+			if(pHalData->AntDivCfg==0)
+			{
+				LedCfg = rtw_read8(padapter, REG_LEDCFG0);
+				LedCfg &= 0x70; // Set to software control. 			
+				rtw_write8(padapter, REG_LEDCFG0, (LedCfg|BIT3));
+				//RT_TRACE(COMP_LED, DBG_LOUD, ("SwLedOff LED0 0x%x\n", PlatformEFIORead4Byte(Adapter, REG_LEDCFG0)));
+			}
+			else
+			{
+				LedCfg = rtw_read8(padapter, REG_LEDCFG2);
+				LedCfg &= 0xe0; // Set to software control. 			
+				rtw_write8(padapter, REG_LEDCFG2, (LedCfg|BIT3|BIT7|BIT6|BIT5));
+				//RT_TRACE(COMP_LED, DBG_LOUD, ("SwLedOff LED0 0x%x\n", PlatformEFIORead4Byte(Adapter, REG_LEDCFG2)));
+			}
+			break;
+
+		case LED_PIN_LED1:
+			LedCfg = rtw_read8(padapter, REG_LEDCFG2);
+			LedCfg &= 0xe0; // Set to software control. 			
+			rtw_write8(padapter, REG_LEDCFG2, (LedCfg|BIT3|BIT5));
+			//RT_TRACE(COMP_LED, DBG_LOUD, ("SwLedOff LED1 0x%x\n", PlatformEFIORead4Byte(Adapter, REG_LEDCFG0)));
+			break;
+
+		default:
+			break;
+	}
+	
+	#endif
 exit:
 	pLed->bLedOn = _FALSE;
 	

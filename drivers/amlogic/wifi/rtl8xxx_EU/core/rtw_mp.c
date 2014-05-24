@@ -530,7 +530,6 @@ MPT_DeInitAdapter(
 	}
 	NdisFreeSpinLock( &(pMptCtx->MptWorkItemSpinLock) );
 #endif
-	
 }
 
 static u8 mpt_ProStartTest(PADAPTER padapter)
@@ -570,7 +569,7 @@ static void disable_dm(PADAPTER padapter)
 #endif
 	HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(padapter);
 	struct dm_priv	*pdmpriv = &pHalData->dmpriv;
-	PDM_ODM_T		pDM_Odm = &(pHalData->odmpriv);
+
 
 	//3 1. disable firmware dynamic mechanism
 	// disable Power Training, Rate Adaptive
@@ -590,7 +589,7 @@ static void disable_dm(PADAPTER padapter)
 
 	// enable APK, LCK and IQK but disable power tracking
 #ifndef CONFIG_RTL8188E
-	pDM_Odm->RFCalibrateInfo.TxPowerTrackControl = _FALSE;
+	pdmpriv->TxPowerTrackControl = _FALSE;
 #endif
 	Switch_DM_Func(padapter, DYNAMIC_RF_CALIBRATION, _TRUE);
 }
@@ -600,7 +599,7 @@ void MPT_PwrCtlDM(PADAPTER padapter, u32 bstart)
 {
 	HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(padapter);
 	struct dm_priv	*pdmpriv = &pHalData->dmpriv;
-	PDM_ODM_T		pDM_Odm = &(pHalData->odmpriv);
+
 	//Switch_DM_Func(padapter, DYNAMIC_RF_CALIBRATION, bstart);
 	if (bstart==1){
 		DBG_871X("in MPT_PwrCtlDM start \n");		
@@ -608,16 +607,10 @@ void MPT_PwrCtlDM(PADAPTER padapter, u32 bstart)
 		pdmpriv->InitODMFlag |= ODM_RF_TX_PWR_TRACK ;
 		pdmpriv->InitODMFlag |= ODM_RF_CALIBRATION ;
 		pdmpriv->TxPowerTrackControl = _TRUE;
-#ifndef CONFIG_RTL8188E
-		pDM_Odm->RFCalibrateInfo.TxPowerTrackControl =  _TRUE;
-#endif
 	}else{
 		DBG_871X("in MPT_PwrCtlDM stop \n");
 		disable_dm(padapter);
 		pdmpriv->TxPowerTrackControl = _FALSE;
-		#ifndef CONFIG_RTL8188E
-		pDM_Odm->RFCalibrateInfo.TxPowerTrackControl =  _FALSE;
-		#endif
 
 	}
 		
@@ -644,6 +637,7 @@ s32 mp_start_test(PADAPTER padapter)
 	
 	//3 disable dynamic mechanism
 	disable_dm(padapter);
+
 	//3 0. update mp_priv
 
 	if (padapter->registrypriv.rf_config == RF_819X_MAX_TYPE) {
@@ -1321,7 +1315,7 @@ void SetPacketRx(PADAPTER pAdapter, u8 bStartRx)
 
 	if(bStartRx)
 	{
-	// Accept CRC error and destination address
+		// Accept CRC error and destination address
 #if 1
 //ndef CONFIG_RTL8723A
 		//pHalData->ReceiveConfig = AAP | APM | AM | AB | APP_ICV | ADF | AMF | HTC_LOC_CTRL | APP_MIC | APP_PHYSTS;

@@ -48,23 +48,16 @@ void rtl8188e_sreset_xmit_status_check(_adapter *padapter)
 
 		diff_time = rtw_get_passing_time_ms(psrtpriv->last_tx_time);
 
-		if (diff_time > 2000) {
-			if (psrtpriv->last_tx_complete_time == 0) {
+		if(diff_time > 2000){
+			if(psrtpriv->last_tx_complete_time==0){
 				psrtpriv->last_tx_complete_time = current_time;
 			}
 			else{
 				diff_time = rtw_get_passing_time_ms(psrtpriv->last_tx_complete_time);
 				if (diff_time > 4000) {
-					u32 ability;
-
 					//padapter->Wifi_Error_Status = WIFI_TX_HANG;
-					rtw_hal_get_def_var(padapter, HAL_DEF_DBG_DM_FUNC, &ability);
-
-					DBG_871X("%s tx hang %s\n", __FUNCTION__,
-						(ability & ODM_BB_ADAPTIVITY)? "ODM_BB_ADAPTIVITY" : "");
-
-					if (!(ability & ODM_BB_ADAPTIVITY))
-						rtw_hal_sreset_reset(padapter);
+					DBG_871X("%s tx hang\n", __FUNCTION__);
+					rtw_hal_sreset_reset(padapter);
 				}
 			}
 		}
