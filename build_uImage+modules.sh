@@ -10,4 +10,4 @@ cp -rfv output/lib/modules/* output/
 rm -rfv output/lib
 
 make uImage -j4 LOCALVERSION=-MX
-cp -rf arch/arm/boot/uImage output/
+cp -rfv arch/arm/boot/uImage output/
